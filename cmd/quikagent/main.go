@@ -25,6 +25,9 @@ import (
 	"quikagent/internal/tui"
 )
 
+// Set by GoReleaser via -X main.version. Falls back to module version, then "dev".
+var version = "dev"
+
 func main() {
 	printMode := flag.String("p", "", "print mode: run one turn non-interactively and exit")
 	contin := flag.Bool("continue", false, "resume the most recent session")
@@ -43,7 +46,7 @@ func main() {
 	flag.Parse()
 
 	if *showVersion {
-		fmt.Println(version())
+		fmt.Println(versionString())
 		return
 	}
 
@@ -53,7 +56,10 @@ func main() {
 	}
 }
 
-func version() string {
+func versionString() string {
+	if version != "" && version != "dev" {
+		return version
+	}
 	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
 		return info.Main.Version
 	}

@@ -12,6 +12,12 @@ import (
 // TestPrintAllowToolReusesStdin verifies that the allow tool function can be
 // called multiple times: printAllowTool creates one stdin reader and reuses
 // it across calls (so buffered input like "y\ny\n" is not dropped).
+func TestVersionStringDefault(t *testing.T) {
+	if got := versionString(); got != "dev" {
+		t.Fatalf("versionString() = %q, want dev", got)
+	}
+}
+
 func TestPrintAllowToolReusesStdin(t *testing.T) {
 	r, w, err := os.Pipe()
 	if err != nil {

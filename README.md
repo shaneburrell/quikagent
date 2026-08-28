@@ -6,12 +6,20 @@ TUI (with an OpenCode-style right sidebar) and an optional web UI.
 
 MIT licensed — see [LICENSE](LICENSE).
 
-## Setup
+## Install
+
+```sh
+brew install shaneburrell/tap/quikagent
+```
+
+Or build from source:
 
 ```sh
 go build -o quikagent ./cmd/quikagent
 ./quikagent   # first run opens a setup screen if no API key is configured
 ```
+
+## Setup
 
 On first interactive launch (or `/setup`), enter your API key, base URL, and
 model. Values are saved to `~/.quikagent/config.yaml` (mode `0600`), including
