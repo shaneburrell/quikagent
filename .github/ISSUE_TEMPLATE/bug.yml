@@ -1,0 +1,30 @@
+name: Bug report
+description: Something is broken or unexpected
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What did you expect, and what actually happened?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. …
+        2. …
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: quikagent version
+      description: Output of `quikagent -version` if you have it
+  - type: markdown
+    attributes:
+      value: |
+        Do not include API keys, `config.yaml`, or other secrets.
+        For sandbox escapes or key leaks, see [SECURITY.md](../SECURITY.md).

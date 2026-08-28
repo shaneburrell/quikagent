@@ -1,0 +1,82 @@
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: quikagent-lab
+  namespace: default
+  labels:
+    harvesterhci.io/creator: harvester
+    harvesterhci.io/vmName: quikagent-lab
+  annotations:
+    harvesterhci.io/vmRunStrategy: Always
+    harvesterhci.io/volumeClaimTemplates: >-
+      [{"metadata":{"name":"quikagent-lab-root","annotations":{"harvesterhci.io/imageId":"default/REPLACE_WITH_IMAGE_ID"}},"spec":{"accessModes":["ReadWriteMany"],"resources":{"requests":{"storage":"50Gi"}},"volumeMode":"Block","storageClassName":"REPLACE_WITH_STORAGE_CLASS"}}]
+spec:
+  runStrategy: Always
+  template:
+    metadata:
+      annotations:
+        harvesterhci.io/sshNames: "[]"
+      labels:
+        harvesterhci.io/vmName: quikagent-lab
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: network.harvesterhci.io/REPLACE_WITH_VLAN_LABEL
+                    operator: In
+                    values:
+                      - "true"
+      architecture: amd64
+      domain:
+        cpu:
+          cores: 8
+          maxSockets: 1
+          sockets: 1
+          threads: 1
+        devices:
+          disks:
+            - name: disk-0
+              bootOrder: 1
+              disk:
+                bus: virtio
+            - name: cloudinitdisk
+              disk:
+                bus: virtio
+          inputs:
+            - bus: usb
+              name: tablet
+              type: tablet
+          interfaces:
+            - name: nic-0
+              model: virtio
+              bridge: {}
+        machine:
+          type: q35
+        memory:
+          guest: 32Gi
+        resources:
+          limits:
+            cpu: "8"
+            memory: 32Gi
+          requests:
+            cpu: 500m
+            memory: 21845Mi
+      evictionStrategy: LiveMigrateIfPossible
+      hostname: quikagent-lab
+      networks:
+        - name: nic-0
+          multus:
+            networkName: default/REPLACE_WITH_NETWORK
+      terminationGracePeriodSeconds: 120
+      volumes:
+        - name: disk-0
+          persistentVolumeClaim:
+            claimName: quikagent-lab-root
+        - name: cloudinitdisk
+          cloudInitNoCloud:
+            secretRef:
+              name: quikagent-lab-cloudinit
+            networkDataSecretRef:
+              name: quikagent-lab-cloudinit

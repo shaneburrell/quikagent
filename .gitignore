@@ -1,0 +1,11 @@
+/quikagent
+*.test
+*.out
+.env
+.env.*
+*.pem
+id_rsa
+id_ed25519
+*.kubeconfig
+.quikagent/config.yaml
+.quikagent/config.json
