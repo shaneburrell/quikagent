@@ -246,8 +246,18 @@ func TestPlanModeLimitsTools(t *testing.T) {
 	if len(want) != 0 {
 		t.Fatalf("missing plan tools %v (got %v)", want, names)
 	}
-	if !strings.Contains(fake.requests[0][0].Content, "Plan mode") {
+	sys := fake.requests[0][0].Content
+	if !strings.Contains(sys, "Plan mode") {
 		t.Fatal("system prompt lacks plan mode notice")
+	}
+	if !strings.Contains(sys, "/build") {
+		t.Fatal("plan prompt should tell the user how to leave plan mode")
+	}
+	if strings.Contains(sys, "Use bash") {
+		t.Fatal("plan prompt should not tell the model to use bash")
+	}
+	if !strings.Contains(sys, "skill") {
+		t.Fatal("plan prompt should mention skill")
 	}
 }
 
@@ -343,6 +353,41 @@ func TestPlanModeRejectsMutatingTool(t *testing.T) {
 	}
 	if !strings.Contains(toolOut, "not available in plan mode") {
 		t.Fatalf("toolOut = %q events=%+v", toolOut, events)
+	}
+}
+
+func TestSetModeDuringRunChangesNextStepTools(t *testing.T) {
+	dir := t.TempDir()
+	if err := writeFile(dir, "f.txt", "x\n"); err != nil {
+		t.Fatal(err)
+	}
+	fake := &fakeLLM{scripts: []script{
+		{toolCalls: []llm.ToolCall{{ID: "1", Name: "read", Arguments: `{"path":"f.txt"}`}}},
+		{text: "ok"},
+	}}
+	a := newTestAgent(dir, fake)
+	a.SetMode(Plan)
+	a.SetAllowTool(func(ctx context.Context, name, args string) error {
+		a.SetMode(Build)
+		return nil
+	})
+	collect(t, run(a, "go"))
+	if len(fake.defs) < 2 {
+		t.Fatalf("defs=%d", len(fake.defs))
+	}
+	for _, d := range fake.defs[0] {
+		if d.Name == "write" {
+			t.Fatal("first step should still be plan tools")
+		}
+	}
+	hasWrite := false
+	for _, d := range fake.defs[1] {
+		if d.Name == "write" {
+			hasWrite = true
+		}
+	}
+	if !hasWrite {
+		t.Fatal("second step should include write after SetMode(Build)")
 	}
 }
 

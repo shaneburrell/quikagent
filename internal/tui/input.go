@@ -173,7 +173,20 @@ func (i *Input) LineText() string { return i.lines[i.row] }
 func splitLines(s string) []string {
 	var out []string
 	cur := []rune{}
+	skipNL := false
 	for _, r := range s {
+		if skipNL {
+			skipNL = false
+			if r == '\n' {
+				continue
+			}
+		}
+		if r == '\r' {
+			out = append(out, string(cur))
+			cur = cur[:0]
+			skipNL = true
+			continue
+		}
 		if r == '\n' {
 			out = append(out, string(cur))
 			cur = cur[:0]

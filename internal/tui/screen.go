@@ -160,8 +160,19 @@ func isWide(r rune) bool {
 }
 
 // WrapRow word-wraps a row to fit width, preserving attributes. Words
-// longer than width are hard-broken.
+// longer than width are hard-broken. Trailing spaces are trimmed so
+// transcript lines stay clean.
 func WrapRow(row Row, width int) []Row {
+	return wrapRow(row, width, false)
+}
+
+// WrapRowKeepTrailing is WrapRow without stripping trailing spaces.
+// Used for the live input line so typed spaces stay visible.
+func WrapRowKeepTrailing(row Row, width int) []Row {
+	return wrapRow(row, width, true)
+}
+
+func wrapRow(row Row, width int, keepTrailing bool) []Row {
 	if width <= 0 {
 		return []Row{row}
 	}
@@ -182,9 +193,10 @@ func WrapRow(row Row, width int) []Row {
 	var line []tok
 	lineW := 0
 	flush := func() {
-		// Trim trailing spaces.
-		for len(line) > 0 && line[len(line)-1].sp {
-			line = line[:len(line)-1]
+		if !keepTrailing {
+			for len(line) > 0 && line[len(line)-1].sp {
+				line = line[:len(line)-1]
+			}
 		}
 		var segs []Segment
 		for _, t := range line {
@@ -195,7 +207,7 @@ func WrapRow(row Row, width int) []Row {
 			}
 		}
 		if len(segs) == 0 {
-			segs = []Segment{{Text: strings.Repeat(" ", width), Attr: Attr{}}}
+			segs = []Segment{{Text: strings.Repeat(" ", width), Attr: styleDefault}}
 		}
 		out = append(out, Row{Segs: segs})
 		line = nil

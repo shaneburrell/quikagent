@@ -58,7 +58,7 @@ func TestSideWidth(t *testing.T) {
 func TestRenderSidebar(t *testing.T) {
 	rows := RenderSidebar(SidebarData{
 		SessionID: "abc", Preview: "hello", Model: "qwen", Route: "nano",
-		Workdir: "/tmp/proj", MsgCount: 3, MCP: []string{"demo"},
+		ToolsMode: "plan", Workdir: "/tmp/proj", MsgCount: 3, MCP: []string{"demo"},
 		Modified: []string{" M main.go"},
 		Sessions: []session.Info{{ID: "abc"}, {ID: "def"}},
 	}, 28, 40, 0)
@@ -73,7 +73,7 @@ func TestRenderSidebar(t *testing.T) {
 		joined.WriteByte('\n')
 	}
 	out := joined.String()
-	for _, want := range []string{"SESSION", "MODEL", "route: nano", "MCP", "demo", "MODIFIED", "main.go", "PATH", "proj"} {
+	for _, want := range []string{"SESSION", "MODEL", "tools: plan", "route: nano", "MCP", "demo", "MODIFIED", "main.go", "PATH", "proj"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("missing %q in\n%s", want, out)
 		}

@@ -18,19 +18,19 @@ Registered by default:
 | `list` | Directory listing | yes |
 | `fetch` | HTTP GET (public URLs; blocks private/loopback) | yes |
 | `git` | Git in the workdir | yes |
-| `todo` | In-session todo list | yes |
+| `todo` | In-session todo list | no |
 | `question` | Ask the user a structured question | yes |
 | `apply_patch` | Multi-file patch | no |
 
 ## Optional
 
-| Tool | When |
-|------|------|
-| `skill` | Always available once the agent starts (loads `SKILL.md`) |
-| `task` | Spawns a child agent (`explore`, `general`, or custom) |
-| `websearch` | `websearch_url` / `QUIKAGENT_WEBSEARCH_URL` |
-| `lsp` | `lsp.command` set |
-| `mcp_<name>_<tool>` | Each tool from a configured MCP server |
+| Tool | When | Plan |
+|------|------|------|
+| `skill` | Always available once the agent starts (loads `SKILL.md`) | yes |
+| `task` | Spawns a child agent (`explore`, `general`, or custom) | no |
+| `websearch` | `websearch_url` / `QUIKAGENT_WEBSEARCH_URL` | yes |
+| `lsp` | `lsp.command` set | yes |
+| `mcp_<name>_<tool>` | Each tool from a configured MCP server | no |
 
 ## Sandbox
 

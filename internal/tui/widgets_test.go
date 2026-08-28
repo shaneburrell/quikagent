@@ -109,7 +109,7 @@ func TestStatusHasNewHint(t *testing.T) {
 	for _, s := range row.Segs {
 		b.WriteString(s.Text)
 	}
-	if !strings.Contains(b.String(), "↓ new") {
+	if !strings.Contains(b.String(), "↓ new") || !strings.Contains(b.String(), "tab plan/build") {
 		t.Fatalf("%q", b.String())
 	}
 }
@@ -234,11 +234,18 @@ func TestCursorInLine(t *testing.T) {
 	if r != 1 || c != 2 {
 		t.Fatalf("got (%d,%d) want (1,2)", r, c)
 	}
-	// Cursor in the gap (right after the wrap space) snaps to the end
-	// of the previous chunk.
+	// Cursor on the wrap space is kept (input wrap does not trim).
 	r, c = cursorInLine(line, 6, 6)
-	if r != 0 || c != 5 {
-		t.Fatalf("got (%d,%d) want (0,5)", r, c)
+	if r != 0 || c != 6 {
+		t.Fatalf("got (%d,%d) want (0,6)", r, c)
+	}
+	r, c = cursorInLine("hello ", 6, 80)
+	if r != 0 || c != 6 {
+		t.Fatalf("trailing space cursor (%d,%d) want (0,6)", r, c)
+	}
+	r, c = cursorInLine(" ", 1, 80)
+	if r != 0 || c != 1 {
+		t.Fatalf("lone space cursor (%d,%d) want (0,1)", r, c)
 	}
 	// Repeated wrap fragments must not reverse-match the first chunk.
 	line = "aaaa aaaa aaaa"

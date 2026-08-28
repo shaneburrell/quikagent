@@ -447,13 +447,6 @@ func (s *Server) handleMode(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad json", http.StatusBadRequest)
 		return
 	}
-	s.mu.Lock()
-	busy := s.busy
-	s.mu.Unlock()
-	if busy {
-		http.Error(w, "turn already in progress", http.StatusConflict)
-		return
-	}
 	switch body.Mode {
 	case "plan":
 		s.agent.SetMode(agent.Plan)

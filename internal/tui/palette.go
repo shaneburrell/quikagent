@@ -19,7 +19,7 @@ func defaultPaletteCommands() []paletteCmd {
 		{ID: "sidebar", Label: "Toggle sidebar", Hint: "ctrl+b"},
 		{ID: "sessions", Label: "List sessions", Hint: "/sessions"},
 		{ID: "resume", Label: "Resume session", Hint: "/resume"},
-		{ID: "plan", Label: "Toggle plan/build", Hint: "tab"},
+		{ID: "plan", Label: "Toggle plan/build", Hint: "tab · /plan /build"},
 		{ID: "compact", Label: "Compact conversation", Hint: "/compact"},
 		{ID: "undo", Label: "Undo last turn", Hint: "/undo"},
 		{ID: "redo", Label: "Redo undone turn", Hint: "/redo"},

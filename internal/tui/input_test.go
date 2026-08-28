@@ -123,6 +123,14 @@ func TestInputPasteMultiLine(t *testing.T) {
 	}
 }
 
+func TestInputPasteCRLF(t *testing.T) {
+	i := NewInput()
+	i.Paste("line1\r\nline2\rline3")
+	if i.Text() != "line1\nline2\nline3" {
+		t.Fatalf("text = %q", i.Text())
+	}
+}
+
 func TestInputClear(t *testing.T) {
 	i := NewInput()
 	i.SetText("abc")

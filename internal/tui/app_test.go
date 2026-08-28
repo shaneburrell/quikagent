@@ -425,17 +425,67 @@ func TestEnsureModelsPickerDoesNotNeedClient(t *testing.T) {
 	}
 }
 
-func TestModeAndModelKeysIgnoredWhenBusy(t *testing.T) {
+func TestTabSwitchesModeWhenBusy(t *testing.T) {
 	ag := testAgent("qwen")
 	a := &App{busy: true, agent: ag, cfg: &config.Config{Model: "qwen"}, model: NewModel(), input: NewInput()}
-	before := ag.Mode()
+	if ag.Mode() != agent.Build {
+		t.Fatal("expected build")
+	}
 	a.handleKeys([]Key{{Kind: KeyNamed, Name: KeyTab}})
-	if ag.Mode() != before {
-		t.Fatal("tab should not change mode while busy")
+	if ag.Mode() != agent.Plan {
+		t.Fatal("tab should switch to plan while busy")
 	}
 	a.handleKeys([]Key{{Kind: KeyNamed, Name: KeyF2}})
 	if ag.Model() != "qwen" {
 		t.Fatalf("f2 changed model while busy: %s", ag.Model())
+	}
+}
+
+func TestPlanBuildSlashCommands(t *testing.T) {
+	ag := testAgent("qwen")
+	a := &App{busy: true, agent: ag, model: NewModel(), input: NewInput()}
+	a.command("/plan")
+	if ag.Mode() != agent.Plan {
+		t.Fatal("/plan while busy")
+	}
+	a.command("/build")
+	if ag.Mode() != agent.Build {
+		t.Fatal("/build while busy")
+	}
+	a.command("/mode")
+	if ag.Mode() != agent.Plan {
+		t.Fatal("/mode toggle")
+	}
+	a.command("/mode build")
+	if ag.Mode() != agent.Build {
+		t.Fatal("/mode build")
+	}
+}
+
+func TestEnterWhileBusyDoesNotGrowInput(t *testing.T) {
+	a := &App{busy: true, input: NewInput(), model: NewModel(), agent: testAgent("qwen")}
+	a.input.SetText("do it")
+	a.handleKeys([]Key{{Kind: KeyNamed, Name: KeyEnter}})
+	if strings.Contains(a.input.Text(), "\n") {
+		t.Fatalf("enter while busy inserted newline: %q", a.input.Text())
+	}
+	if a.input.Text() != "do it" {
+		t.Fatalf("input = %q", a.input.Text())
+	}
+}
+
+func TestInputBlockKeepsTrailingSpace(t *testing.T) {
+	a := &App{input: NewInput(), width: 40}
+	a.input.SetText("hello ")
+	rows, _, cx, vis := a.inputBlock()
+	if !vis {
+		t.Fatal("cursor should be visible")
+	}
+	if !strings.Contains(rowTexts(rows)[0], "hello ") {
+		t.Fatalf("missing trailing space: %q", rowTexts(rows)[0])
+	}
+	if cx != 8 { // "❯ " (2) + "hello " (6)
+		t.Fatalf("cx=%d want 8", cx)
 	}
 }
 

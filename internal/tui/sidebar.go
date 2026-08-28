@@ -25,6 +25,7 @@ const (
 type SidebarData struct {
 	SessionID, Preview, Model, Route, Workdir string
 	ModelMode                                 string // "auto" or "pin"
+	ToolsMode                                 string // "plan" or "build"
 	RouteMap                                  []string
 	PromptTokens, CompletionTokens, MsgCount  int
 	MCP                                       []string
@@ -120,6 +121,9 @@ func SidebarLines(d SidebarData, width int) []string {
 
 	addHeader("MODEL")
 	add(" " + clipSide(d.Model, width-1))
+	if d.ToolsMode != "" {
+		add(" tools: " + clipSide(d.ToolsMode, width-8))
+	}
 	if d.ModelMode != "" {
 		add(" mode: " + clipSide(d.ModelMode, width-7))
 	}

@@ -140,6 +140,21 @@ func TestWrapRowEmpty(t *testing.T) {
 	if len(wrapped) != 1 {
 		t.Fatalf("wrapped = %+v", wrapped)
 	}
+	if wrapped[0].Segs[0].Attr != styleDefault {
+		t.Fatalf("empty wrap attr = %+v want styleDefault", wrapped[0].Segs[0].Attr)
+	}
+}
+
+func TestWrapRowKeepTrailing(t *testing.T) {
+	row := Row{Segs: []Segment{{Text: "hello ", Attr: styleDefault}}}
+	trimmed := WrapRow(row, 80)
+	if len(trimmed) != 1 || textOf(trimmed[0]) != "hello" {
+		t.Fatalf("default wrap should trim: %q", textOf(trimmed[0]))
+	}
+	kept := WrapRowKeepTrailing(row, 80)
+	if len(kept) != 1 || textOf(kept[0]) != "hello " {
+		t.Fatalf("keep trailing = %q", textOf(kept[0]))
+	}
 }
 
 func textOf(row Row) string {

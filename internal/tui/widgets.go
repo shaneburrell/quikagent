@@ -355,7 +355,7 @@ type statusPart struct {
 
 // StatusRowOpts renders a status bar with optional route and width truncation.
 func StatusRowOpts(o StatusOpts) Row {
-	hint := "f2 model · ctrl+p · wheel · ctrl+q"
+	hint := "tab plan/build · f2 model · ctrl+p · wheel · ctrl+q"
 	if o.Busy {
 		hint = fmt.Sprintf("%s working…", string(spinnerFrames[o.Spinner%len(spinnerFrames)]))
 	}

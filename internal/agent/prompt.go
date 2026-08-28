@@ -46,14 +46,20 @@ func systemPrompt(opts Options, mode Mode) string {
 	fmt.Fprintf(&b, "- Date: %s\n", time.Now().Format("2006-01-02"))
 	fmt.Fprintf(&b, "- Model: %s\n\n", opts.Model)
 	if mode == Plan {
-		b.WriteString("# Plan mode\nYou are in plan mode. Do NOT modify anything: you only have read-only tools (read, glob, grep, list, fetch, git, question, and websearch if configured). Investigate, then propose a concrete step-by-step plan. Do not write to files.\n\n")
+		b.WriteString("# Plan mode\nYou are in plan mode. Do NOT modify anything: you only have read-only tools (read, glob, grep, list, fetch, git, question, skill, and websearch or lsp if configured). Investigate, then propose a concrete step-by-step plan. Do not write to files.\nIf the user asks you to implement or go ahead, tell them to press Tab or type /build to leave plan mode. Do not pretend to write files.\n\n")
 	}
 	b.WriteString("# Guidelines\n")
-	b.WriteString("- Use the tools to do real work; read files before editing them.\n")
-	b.WriteString("- Keep replies concise; this is a terminal, not an essay.\n")
-	b.WriteString("- Use bash for builds, tests, and git; verify changes when a check exists.\n")
-	b.WriteString("- Never commit or push unless explicitly asked.\n")
-	b.WriteString("- If a task is ambiguous, state your assumption briefly and proceed.\n")
+	if mode == Plan {
+		b.WriteString("- Use the read-only tools to investigate; then propose a concrete plan.\n")
+		b.WriteString("- Keep replies concise; this is a terminal, not an essay.\n")
+		b.WriteString("- If a task is ambiguous, state your assumption briefly and proceed.\n")
+	} else {
+		b.WriteString("- Use the tools to do real work; read files before editing them.\n")
+		b.WriteString("- Keep replies concise; this is a terminal, not an essay.\n")
+		b.WriteString("- Use bash for builds, tests, and git; verify changes when a check exists.\n")
+		b.WriteString("- Never commit or push unless explicitly asked.\n")
+		b.WriteString("- If a task is ambiguous, state your assumption briefly and proceed.\n")
+	}
 	if agents := loadAgentsMD(opts.Workdir); agents != "" {
 		b.WriteString("\n# Project AGENTS.md\n")
 		b.WriteString(agents)

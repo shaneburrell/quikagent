@@ -410,10 +410,10 @@ func (a *App) handleKeys(keys []Key) {
 		case k.is(KeyEnter):
 			if a.compacting {
 				a.model.Note("compacting in progress...")
-				return
+				continue
 			}
 			if a.busy {
-				a.input.Newline()
+				a.model.Note("turn in progress — ctrl+c to cancel")
 			} else if text := strings.TrimSpace(a.input.Text()); text != "" {
 				a.submit(a.input.Text())
 				a.input.Clear()
@@ -445,9 +445,7 @@ func (a *App) handleKeys(keys []Key) {
 		case k.is(KeyEnd):
 			a.input.End()
 		case k.is(KeyTab):
-			if !a.busy {
-				a.toggleMode()
-			}
+			a.toggleMode()
 		case k.is(KeyF2):
 			if !a.busy {
 				a.cycleModel(false)
@@ -990,10 +988,17 @@ func (a *App) promptStrip(width int) []Row {
 
 func (a *App) toggleMode() {
 	if a.agent.Mode() == agent.Build {
-		a.agent.SetMode(agent.Plan)
+		a.setAgentMode(agent.Plan)
+	} else {
+		a.setAgentMode(agent.Build)
+	}
+}
+
+func (a *App) setAgentMode(m agent.Mode) {
+	a.agent.SetMode(m)
+	if m == agent.Plan {
 		a.model.Note("mode: plan (read-only)")
 	} else {
-		a.agent.SetMode(agent.Build)
 		a.model.Note("mode: build")
 	}
 }
@@ -1212,10 +1217,27 @@ func (a *App) command(text string) {
 		a.redoTurn()
 	case "setup", "connect":
 		a.openSetup()
+	case "plan":
+		a.setAgentMode(agent.Plan)
+	case "build":
+		a.setAgentMode(agent.Build)
+	case "mode":
+		if len(parts) < 2 {
+			a.toggleMode()
+			return
+		}
+		switch parts[1] {
+		case "plan":
+			a.setAgentMode(agent.Plan)
+		case "build":
+			a.setAgentMode(agent.Build)
+		default:
+			a.model.Note("usage: /mode [plan|build]")
+		}
 	case "config":
 		a.openConfig()
 	case "help":
-		a.model.Note("commands: /setup /connect /config /models /model [name|auto] /router [on|off] /clear /sessions /resume <id> /compact /undo /redo /init /refresh /help\nkeys: enter send · f2 cycle model · ctrl+p commands · ctrl+b sidebar · wheel/shift+↑↓/pgup/pgdn scroll · ctrl+c cancel · ctrl+q quit")
+		a.model.Note("commands: /setup /connect /config /models /model [name|auto] /router [on|off] /plan /build /mode [plan|build] /clear /sessions /resume <id> /compact /undo /redo /init /refresh /help\nkeys: enter send · tab plan/build · f2 cycle model · ctrl+p commands · ctrl+b sidebar · wheel/shift+↑↓/pgup/pgdn scroll · ctrl+c cancel · ctrl+q quit")
 	default:
 		if prompt, ok := lookupProjectCommand(a.cfg.Workdir, parts[0]); ok {
 			a.submit(prompt)
@@ -1572,6 +1594,10 @@ func (a *App) sidebarData(scrollHint string) SidebarData {
 	} else if a.agent.ModelPinned() {
 		mode = "pin"
 	}
+	toolsMode := "build"
+	if a.agent.Mode() == agent.Plan {
+		toolsMode = "plan"
+	}
 	var routeMap []string
 	for _, name := range []string{"nano", "coder", "qwen", "other"} {
 		if t, ok := a.cfg.Router.Routes[name]; ok && t.Model != "" {
@@ -1580,7 +1606,7 @@ func (a *App) sidebarData(scrollHint string) SidebarData {
 	}
 	return SidebarData{
 		SessionID: a.sess.ID, Preview: a.preview,
-		Model: a.agent.Model(), ModelMode: mode, Route: route,
+		Model: a.agent.Model(), ModelMode: mode, ToolsMode: toolsMode, Route: route,
 		RouteMap: routeMap, Workdir: a.cfg.Workdir,
 		PromptTokens: a.usage.Prompt, CompletionTokens: a.usage.Completion,
 		MsgCount: len(a.agent.Messages()), MCP: a.mcpNames,
@@ -1823,7 +1849,7 @@ func (a *App) inputBlock() (rows []Row, cy, cx int, visible bool) {
 	lineStart := make([]int, 0, len(lines))
 	for li, line := range lines {
 		lineStart = append(lineStart, len(all))
-		wr := WrapRow(Row{Segs: []Segment{{Text: line, Attr: styleDefault}}}, a.width-2)
+		wr := WrapRowKeepTrailing(Row{Segs: []Segment{{Text: line, Attr: styleDefault}}}, a.width-2)
 		for wi, w := range wr {
 			prefix := "  "
 			if li == 0 && wi == 0 {
@@ -1879,11 +1905,10 @@ func cursorInLine(line string, col, width int) (row, colOut int) {
 	if col == 0 {
 		return 0, 0
 	}
-	// Walk the prefix the same way WrapRow lays out the full line: wrap the
-	// prefix and take the last chunk's display width. This stays correct when
-	// the same wrap fragment repeats (e.g. "aaaa aaaa").
+	// Walk the prefix the same way input wrap lays out the line so the
+	// caret stays on typed trailing spaces.
 	prefix := string(rs[:col])
-	chunks := WrapRow(Row{Segs: []Segment{{Text: prefix, Attr: styleDefault}}}, width)
+	chunks := WrapRowKeepTrailing(Row{Segs: []Segment{{Text: prefix, Attr: styleDefault}}}, width)
 	if len(chunks) == 0 {
 		return 0, 0
 	}

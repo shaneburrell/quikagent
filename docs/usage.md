@@ -48,8 +48,11 @@ Sessions are JSONL under `~/.quikagent/sessions`.
 ## Slash commands
 
 `/setup` (alias `/connect`), `/config`, `/models`, `/model [name|auto]`,
-`/router [on|off]`, `/help`, `/clear`, `/sessions`, `/resume <id>`,
-`/compact`, `/refresh`, `/undo`, `/redo`, `/init`.
+`/router [on|off]`, `/plan`, `/build`, `/mode [plan|build]`, `/help`,
+`/clear`, `/sessions`, `/resume <id>`, `/compact`, `/refresh`, `/undo`,
+`/redo`, `/init`.
+
+- **`/plan`** / **`/build`** / **`/mode`** — switch tool surface (works during a turn). `/mode` with no argument toggles. Same as **Tab**.
 
 - **`/models`** — pick from API `/v1/models` (merged with config defaults); first row is **auto (Arch-Router)**.
 - **`/model auto`** / **F2** — enable per-turn routing; pinning a model disables it until auto again.
@@ -76,7 +79,7 @@ the session. Web **Always** is the same scope.
 ## Print, plan, web
 
 - **Print:** one turn, stdout. Prompts on stdin unless `-yes`.
-- **Plan:** read-only tools only (`--plan` or `tab` in the TUI).
+- **Plan:** read-only tools only (`--plan`, **Tab**, or `/plan` / `/build`).
 - **Web:** SSE UI on loopback by default. Do not bind on the LAN unless
   you pass `--web-listen-all` on purpose.
 

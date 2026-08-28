@@ -700,7 +700,7 @@ func TestHandleStateUsesLiveAgentMessages(t *testing.T) {
 	}
 }
 
-func TestModeBusy409(t *testing.T) {
+func TestModeWhileBusyOK(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	sess, err := session.Create()
 	if err != nil {
@@ -727,8 +727,11 @@ func TestModeBusy409(t *testing.T) {
 		t.Fatal(err)
 	}
 	res.Body.Close()
-	if res.StatusCode != http.StatusConflict {
+	if res.StatusCode != http.StatusOK {
 		t.Fatalf("mode status = %d", res.StatusCode)
+	}
+	if ag.Mode() != agent.Plan {
+		t.Fatalf("mode = %s", ag.Mode())
 	}
 	close(block)
 }

@@ -88,10 +88,19 @@ func New(llm LLM, toolset *tools.Registry, opts Options) *Agent {
 }
 
 // Mode returns the current mode.
-func (a *Agent) Mode() Mode { return a.mode }
+func (a *Agent) Mode() Mode {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.mode
+}
 
-// SetMode switches between build and plan.
-func (a *Agent) SetMode(m Mode) { a.mode = m }
+// SetMode switches between build and plan. Safe to call during Run;
+// the next model step picks up the new tool surface.
+func (a *Agent) SetMode(m Mode) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.mode = m
+}
 
 // SetAllowTool installs an optional approval callback. Nil auto-allows.
 func (a *Agent) SetAllowTool(fn AllowFunc) { a.allowTool = fn }
@@ -369,13 +378,14 @@ func (a *Agent) Run(ctx context.Context, userText string, ev chan<- Event) {
 		limit = maxSteps
 	}
 	for step := 0; step < limit; step++ {
+		mode := a.Mode()
 		defs := a.tools.List()
-		if a.mode == Plan {
+		if mode == Plan {
 			defs = a.tools.ReadOnly().List()
 		}
 
 		a.mu.RLock()
-		wire := append([]llm.Message{{Role: llm.RoleSystem, Content: systemPrompt(a.opts, a.mode)}}, a.messages...)
+		wire := append([]llm.Message{{Role: llm.RoleSystem, Content: systemPrompt(a.opts, mode)}}, a.messages...)
 		maxTok := a.opts.MaxTokens
 		a.mu.RUnlock()
 		ch, err := a.llm.Chat(ctx, wire, defs, maxTok)
@@ -446,7 +456,7 @@ func (a *Agent) runTool(ctx context.Context, tc llm.ToolCall, ev chan<- Event) s
 	if !ok {
 		return fmt.Sprintf("Error: unknown tool %q", tc.Name)
 	}
-	if a.mode == Plan && !tool.ReadOnly() {
+	if a.Mode() == Plan && !tool.ReadOnly() {
 		return fmt.Sprintf("Error: tool %q is not available in plan mode", tc.Name)
 	}
 	if a.allowTool != nil {
