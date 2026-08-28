@@ -6,6 +6,8 @@ Tool-agnostic project guidance for coding agents (Cursor, OpenCode, quikagent, C
 
 **quikagent** is a minimal terminal coding agent in Go: hand-rolled TUI, OpenAI-compatible LLM client, sandboxed tools, JSONL sessions, optional web UI and Arch-Router.
 
+Human product docs live in [docs/](docs/).
+
 - Module: `quikagent`
 - Entry: `cmd/quikagent`
 - License: MIT
@@ -57,7 +59,7 @@ Prefer `go test ./...` before claiming a change works. Use the local binary for 
 
 ## Config
 
-User prefs live in `~/.quikagent/config.yaml` (mode `0600`). See [README.md](README.md) for variables, keys, and router setup.
+User prefs live in `~/.quikagent/config.yaml` (mode `0600`). See [docs/config.md](docs/config.md) for variables, keys, and router setup.
 
 Project overlay `./.quikagent/config.yaml` field-merges over the home file
 (permissions slices, MCP servers by name, LSP fields; router `enabled` only
