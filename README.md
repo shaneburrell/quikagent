@@ -74,8 +74,7 @@ MIT — see [LICENSE](LICENSE).
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Please read the
-[code of conduct](CODE_OF_CONDUCT.md) before opening issues or pull requests.
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Security
 
