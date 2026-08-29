@@ -1754,14 +1754,14 @@ func (a *App) render() {
 	}
 
 	frame := make([]Row, 0, a.height)
-	for y := 0; y < len(mainBody); y++ {
+	for y := range mainBody {
 		if sideW == 0 {
 			frame = append(frame, padRow(mainBody[y], mainW))
 			continue
 		}
 		left := padRow(mainBody[y], mainW)
 		rule := Row{Segs: []Segment{{Text: "│", Attr: styleDim}}}
-		right := Row{}
+		var right Row
 		if y < len(sideRows) {
 			right = sideRows[y]
 		} else {
@@ -1792,7 +1792,7 @@ func (a *App) render() {
 		// +1 for separator between transcript and input
 		fmt.Fprintf(a.term, "\x1b[%d;%dH\x1b[?25h", CursorScreenRow(histH+len(promptRows)+1, cy), cx+1)
 	} else {
-		a.term.Write([]byte("\x1b[?25l"))
+		_, _ = a.term.Write([]byte("\x1b[?25l"))
 	}
 }
 
@@ -1831,7 +1831,7 @@ func (a *App) renderOverlay() {
 		return
 	}
 	a.renderer.Render(frame)
-	a.term.Write([]byte("\x1b[?25l"))
+	_, _ = a.term.Write([]byte("\x1b[?25l"))
 }
 
 func padRow(r Row, width int) Row {

@@ -264,9 +264,6 @@ func sortPaths(paths []string) []string {
 	return paths
 }
 
-// fileStat is a thin helper so tools share one existence check.
-func fileStat(p string) (os.FileInfo, error) { return os.Stat(p) }
-
 type errInvalidArg string
 
 func (e errInvalidArg) Error() string { return "invalid arguments: " + string(e) }

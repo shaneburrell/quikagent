@@ -61,7 +61,7 @@ func (f *fakeLLM) Chat(ctx context.Context, messages []llm.Message, toolDefs []l
 			ch <- llm.Event{Type: llm.EventReasoning, Reasoning: s.reasoning}
 		}
 		if s.text != "" {
-			for _, r := range []rune(s.text) {
+			for _, r := range s.text {
 				ch <- llm.Event{Type: llm.EventText, Text: string(r)}
 			}
 		}
@@ -328,7 +328,7 @@ func TestMaxStepsGuard(t *testing.T) {
 		t.Fatal(err)
 	}
 	fake := &fakeLLM{}
-	for i := 0; i < maxSteps+5; i++ {
+	for i := range maxSteps + 5 {
 		fake.scripts = append(fake.scripts, script{
 			toolCalls: []llm.ToolCall{{ID: fmt.Sprintf("c%d", i), Name: "read", Arguments: `{"path":"f.txt"}`}},
 		})
@@ -598,7 +598,7 @@ func TestAllowToolDenied(t *testing.T) {
 func TestCompact(t *testing.T) {
 	a := newTestAgent(t.TempDir(), &fakeLLM{})
 	var msgs []llm.Message
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		msgs = append(msgs, llm.Message{Role: llm.RoleUser, Content: fmt.Sprintf("msg-%d", i)})
 	}
 	a.LoadHistory(msgs)
@@ -618,7 +618,7 @@ func TestCompactWithSummarizer(t *testing.T) {
 	a := newTestAgent(t.TempDir(), &fakeLLM{})
 	a.SetSummarizer(&fakeSummarizer{out: "llm summary of the past"})
 	var msgs []llm.Message
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		msgs = append(msgs, llm.Message{Role: llm.RoleUser, Content: fmt.Sprintf("msg-%d", i)})
 	}
 	a.LoadHistory(msgs)
@@ -635,7 +635,7 @@ func TestCompactSummarizerErrorFallsBack(t *testing.T) {
 	a := newTestAgent(t.TempDir(), &fakeLLM{})
 	a.SetSummarizer(&fakeSummarizer{err: fmt.Errorf("summarizer down")})
 	var msgs []llm.Message
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		msgs = append(msgs, llm.Message{Role: llm.RoleUser, Content: fmt.Sprintf("msg-%d", i)})
 	}
 	a.LoadHistory(msgs)
@@ -653,7 +653,7 @@ func TestCompactCallsOnCompact(t *testing.T) {
 	var persisted []llm.Message
 	a.SetOnCompact(func(msgs []llm.Message) { persisted = msgs })
 	var msgs []llm.Message
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		msgs = append(msgs, llm.Message{Role: llm.RoleUser, Content: fmt.Sprintf("msg-%d", i)})
 	}
 	a.LoadHistory(msgs)
@@ -684,7 +684,7 @@ func TestCompactCtxUsesTurnContext(t *testing.T) {
 	sum := &fakeSummarizer{out: "should not be used"}
 	a.SetSummarizer(sum)
 	var msgs []llm.Message
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		msgs = append(msgs, llm.Message{Role: llm.RoleUser, Content: fmt.Sprintf("msg-%d", i)})
 	}
 	a.LoadHistory(msgs)

@@ -140,7 +140,7 @@ func TestSidebarSessionStarMatchesFullID(t *testing.T) {
 
 func TestSidebarSessionsCap(t *testing.T) {
 	var sessions []session.Info
-	for i := 0; i < 15; i++ {
+	for i := range 15 {
 		sessions = append(sessions, session.Info{ID: fmt.Sprintf("%d-sess", i)})
 	}
 	d := SidebarData{SessionID: "14-sess", Model: "m", Workdir: "/p", Sessions: sessions}

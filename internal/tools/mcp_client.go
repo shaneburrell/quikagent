@@ -48,7 +48,7 @@ type mcpResponse struct {
 }
 
 func attachOneMCP(r *Registry, name string, srv config.MCPServer) error {
-	cmd := exec.Command(srv.Command, srv.Args...)
+	cmd := exec.CommandContext(context.Background(), srv.Command, srv.Args...)
 	cmd.Env = scrubMCPEnv(srv.Env)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

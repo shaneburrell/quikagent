@@ -450,9 +450,9 @@ func StatusRowOpts(o StatusOpts) Row {
 	if o.Width > 0 {
 		parts = truncateStatusParts(parts, o.Width)
 	}
-	segs := make([]Segment, len(parts))
-	for i, p := range parts {
-		segs[i] = Segment{Text: p.text, Attr: p.attr}
+	segs := make([]Segment, 0, len(parts)+1)
+	for _, p := range parts {
+		segs = append(segs, Segment{Text: p.text, Attr: p.attr})
 	}
 	// Pad status to full width with subtle bg.
 	if o.Width > 0 {

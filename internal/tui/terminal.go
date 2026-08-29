@@ -17,7 +17,6 @@ type Terminal struct {
 	state        *term.State
 	sigs         chan os.Signal
 	resized      chan struct{}
-	closed       bool
 	shutdownOnce sync.Once
 }
 

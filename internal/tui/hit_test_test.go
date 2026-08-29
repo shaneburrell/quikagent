@@ -42,7 +42,7 @@ func TestHitTestMultilineInput(t *testing.T) {
 	if got := HitTest(5, histH-1, mainW, sideW, histH, inputTop, inputN, bodyH); got != HitTranscript {
 		t.Fatalf("row above input: got %v", got)
 	}
-	for i := 0; i < inputN; i++ {
+	for i := range inputN {
 		if got := HitTest(5, inputTop+i, mainW, sideW, histH, inputTop, inputN, bodyH); got != HitInput {
 			t.Fatalf("input row %d: got %v", i, got)
 		}

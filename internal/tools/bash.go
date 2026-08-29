@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -71,7 +72,8 @@ func (b *bashTool) Run(ctx context.Context, args json.RawMessage) (string, error
 
 	result := out.String()
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
+		exitErr := &exec.ExitError{}
+		if errors.As(err, &exitErr) {
 			return fmt.Sprintf("Exit code %d\n%s", exitErr.ExitCode(), truncate(result)), nil
 		}
 		return "", fmt.Errorf("run command: %w", err)
@@ -122,7 +124,7 @@ func gitLooksMutating(cmd string) bool {
 		"mv": true, "restore": true, "stash": true, "cherry-pick": true,
 		"revert": true, "am": true, "apply": true,
 	}
-	for i := 0; i < len(fields); i++ {
+	for i := range fields {
 		if fields[i] != "git" && !strings.HasSuffix(fields[i], "/git") {
 			continue
 		}

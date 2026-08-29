@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -67,7 +68,8 @@ func (g *gitTool) Run(ctx context.Context, args json.RawMessage) (string, error)
 		return fmt.Sprintf("git %s timed out.\n%s", action, truncate(result)), nil
 	}
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
+		exitErr := &exec.ExitError{}
+		if errors.As(err, &exitErr) {
 			return fmt.Sprintf("Exit code %d\n%s", exitErr.ExitCode(), truncate(result)), nil
 		}
 		return "", fmt.Errorf("git: %w", err)

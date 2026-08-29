@@ -27,7 +27,7 @@ func (a *Agent) runSubagent(ctx context.Context, agentID, prompt string) (string
 
 	childTools := a.tools
 	mode := Build
-	prefix := ""
+	var prefix string
 	switch kind {
 	case "explore":
 		childTools = a.tools.ReadOnly()

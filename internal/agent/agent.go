@@ -347,7 +347,7 @@ func summarizeMessagesLLM(ctx context.Context, summarizer Summarizer, msgs []llm
 func (a *Agent) Run(ctx context.Context, userText string, ev chan<- Event) {
 	defer close(ev)
 	if a.opts.Workdir != "" {
-		if expanded, err := mention.Expand(a.opts.Workdir, userText); err == nil {
+		if expanded, err := mention.Expand(ctx, a.opts.Workdir, userText); err == nil {
 			userText = expanded
 		}
 	}
@@ -396,7 +396,7 @@ func (a *Agent) Run(ctx context.Context, userText string, ev chan<- Event) {
 	if limit <= 0 {
 		limit = maxSteps
 	}
-	for step := 0; step < limit; step++ {
+	for range limit {
 		mode := a.Mode()
 		defs := a.tools.List()
 		if mode == Plan {
@@ -480,7 +480,7 @@ func (a *Agent) applyStepModel(ev chan<- Event, turnModel string, planEmitted *b
 
 // consume drains one LLM stream, forwarding deltas to ev. It returns
 // the assembled assistant message, or nil if the stream failed.
-func (a *Agent) consume(ctx context.Context, ch <-chan llm.Event, ev chan<- Event, usage *llm.Usage) (*llm.Message, bool) {
+func (a *Agent) consume(_ context.Context, ch <-chan llm.Event, ev chan<- Event, usage *llm.Usage) (*llm.Message, bool) {
 	for e := range ch {
 		switch e.Type {
 		case llm.EventText:

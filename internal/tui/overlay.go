@@ -92,7 +92,7 @@ func renderOverlayList(o overlayListOpts, width, height int) []Row {
 	}
 
 	out := make([]Row, height)
-	for y := 0; y < height; y++ {
+	for y := range height {
 		text := ""
 		if y < len(lines) {
 			text = lines[y]

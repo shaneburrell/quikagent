@@ -3,6 +3,7 @@
 package mention
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -22,7 +23,7 @@ const (
 // treated as a path relative to workdir and expands to file contents or a
 // directory listing. Tokens that fail to resolve, escape workdir (including
 // via symlinks), or hit errors are left unchanged.
-func Expand(workdir, text string) (string, error) {
+func Expand(ctx context.Context, workdir, text string) (string, error) {
 	var result strings.Builder
 	i := 0
 	for i < len(text) {
@@ -40,7 +41,7 @@ func Expand(workdir, text string) (string, error) {
 			// Bare @ - leave as-is.
 			result.WriteByte('@')
 		} else {
-			result.WriteString(expandToken(workdir, text[start:end], text[i:end]))
+			result.WriteString(expandToken(ctx, workdir, text[start:end], text[i:end]))
 		}
 		i = end
 	}
@@ -49,11 +50,11 @@ func Expand(workdir, text string) (string, error) {
 
 // expandToken returns the replacement for one @token, or raw (the original
 // "@token" text) if the token cannot be expanded.
-func expandToken(workdir, token, raw string) string {
+func expandToken(ctx context.Context, workdir, token, raw string) string {
 	// Special-case @git before path resolution so a real .git directory
 	// never shadows it.
 	if token == "git" {
-		if out, ok := expandGit(workdir); ok {
+		if out, ok := expandGit(ctx, workdir); ok {
 			return out
 		}
 		return raw
@@ -101,12 +102,12 @@ func containedIn(workdir, path string) bool {
 // expandGit runs git status and diff summary in workdir and wraps the
 // output in a <git> block, capped at maxContentBytes. It reports false if
 // git is unavailable or workdir is not a repository.
-func expandGit(workdir string) (string, bool) {
-	status, err := gitOutput(workdir, "status", "--porcelain")
+func expandGit(ctx context.Context, workdir string) (string, bool) {
+	status, err := gitOutput(ctx, workdir, "status", "--porcelain")
 	if err != nil {
 		return "", false
 	}
-	diff, err := gitOutput(workdir, "diff", "--stat")
+	diff, err := gitOutput(ctx, workdir, "diff", "--stat")
 	if err != nil {
 		return "", false
 	}
@@ -117,8 +118,8 @@ func expandGit(workdir string) (string, bool) {
 	return fmt.Sprintf("<git>\n%s</git>\n", body), true
 }
 
-func gitOutput(workdir string, args ...string) (string, error) {
-	cmd := exec.Command("git", args...)
+func gitOutput(ctx context.Context, workdir string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = workdir
 	out, err := cmd.Output()
 	if err != nil {

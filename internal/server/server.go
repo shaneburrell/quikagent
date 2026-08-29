@@ -663,7 +663,7 @@ func encodeEvent(e agent.Event) ([]byte, error) {
 func (s *Server) handleIndex(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	id := ""
-	route := ""
+	var route string
 	if s.sess != nil {
 		id = s.sess.ID
 	}

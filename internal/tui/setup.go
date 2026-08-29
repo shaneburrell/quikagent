@@ -199,14 +199,12 @@ func (f *setupForm) handleKey(k Key) (SetupResult, bool) {
 			f.field++
 		}
 	case k.is(KeyEnter):
-		if f.field == setupFieldRouter {
+		switch f.field {
+		case setupFieldRouter:
 			f.router = !f.router
-		} else if f.field == setupFieldCount-1 {
-			// last field already handled
-		} else {
+		default:
 			f.beginEdit()
 		}
-		// Enter on last field after toggle: if somehow on router and double-enter with ctrl+s preferred
 	case k.Kind == KeyRune && (k.Rune == ' ' || k.Rune == 'y' || k.Rune == 'n'):
 		if f.field == setupFieldRouter {
 			if k.Rune == 'n' {
@@ -236,7 +234,7 @@ func renderSetupFrame(f *setupForm, width, height int) []Row {
 		"",
 	}
 	labels := []string{"API key", "Base URL", "Model", "Router"}
-	for i := 0; i < setupFieldCount; i++ {
+	for i := range setupFieldCount {
 		mark := "  "
 		if i == f.field {
 			mark = "> "
@@ -278,7 +276,7 @@ func renderSetupFrame(f *setupForm, width, height int) []Row {
 	}
 
 	out := make([]Row, height)
-	for y := 0; y < height; y++ {
+	for y := range height {
 		text := ""
 		attr := styleDim
 		if y < len(lines) {
