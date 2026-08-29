@@ -18,11 +18,12 @@ internal/mention     @path / @git expansion
 internal/text        output clipping
 ```
 
-After a plan, a short approval (`go`) is a handoff: Arch routes as
-implement (`coder` if it would have said `other`). A structured `plan`
-is dispatched by the runtime — each step is Arch-routed into a pinned
-child; independent file sets may run in parallel; a reviewer checks
-each wave.
+After a plan, a short approval (`go`) is a handoff — including from
+plan mode (Tab is optional). Arch routes as implement (`coder` if it
+would have said `other`). A structured `plan` is dispatched by the
+runtime: each step is routed into a pinned child (home/coder if the
+router is off); independent file sets may run in parallel; a
+`small_model` reviewer checks each wave; `confirm` steps stay pending.
 
 User guides: [install.md](install.md), [hosting.md](hosting.md),
 [web-ui.md](web-ui.md). Proposed daemon / jobs / projects:

@@ -11,12 +11,13 @@ import (
 
 // PlanStep is one unit of work in a structured plan.
 type PlanStep struct {
-	ID     string   `json:"id"`
-	Title  string   `json:"title"`
-	Detail string   `json:"detail"`
-	Files  []string `json:"files,omitempty"`
-	Deps   []string `json:"deps,omitempty"`
-	Status string   `json:"status"`
+	ID      string   `json:"id"`
+	Title   string   `json:"title"`
+	Detail  string   `json:"detail"`
+	Files   []string `json:"files,omitempty"`
+	Deps    []string `json:"deps,omitempty"`
+	Confirm bool     `json:"confirm,omitempty"`
+	Status  string   `json:"status"`
 }
 
 // Plan is the session-scoped structured plan (not markdown).
@@ -38,8 +39,8 @@ func (t *PlanTool) ReadOnly() bool { return true }
 func (t *PlanTool) Spec() llm.Tool {
 	return llm.Tool{
 		Name:        "plan",
-		Description: "Record a structured implementation plan. Call once after a short investigate, with concrete steps (id, title, detail, optional files and deps). Then write the human-readable plan and stop.",
-		Parameters:  []byte(`{"type":"object","properties":{"title":{"type":"string"},"steps":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"title":{"type":"string"},"detail":{"type":"string"},"files":{"type":"array","items":{"type":"string"}},"deps":{"type":"array","items":{"type":"string"}},"status":{"type":"string","enum":["pending","in_progress","done","failed"]}},"required":["id","title"]}}},"required":["steps"]}`),
+		Description: "Record a structured implementation plan. Call once after a short investigate, with concrete steps (id, title, detail, optional files, deps, and confirm). Set confirm:true for steps that need the user (git init, destructive). Then write the human-readable plan and stop.",
+		Parameters:  []byte(`{"type":"object","properties":{"title":{"type":"string"},"steps":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"title":{"type":"string"},"detail":{"type":"string"},"files":{"type":"array","items":{"type":"string"}},"deps":{"type":"array","items":{"type":"string"}},"confirm":{"type":"boolean"},"status":{"type":"string","enum":["pending","in_progress","done","failed"]}},"required":["id","title"]}}},"required":["steps"]}`),
 	}
 }
 
@@ -94,6 +95,19 @@ func (t *PlanTool) Reset() {
 // HasWork reports whether any step is pending or failed.
 func (p Plan) HasWork() bool {
 	for _, s := range p.Steps {
+		if s.Status == "pending" || s.Status == "failed" {
+			return true
+		}
+	}
+	return false
+}
+
+// HasDispatchableWork reports pending/failed steps that are not confirm-gated.
+func (p Plan) HasDispatchableWork() bool {
+	for _, s := range p.Steps {
+		if s.Confirm {
+			continue
+		}
 		if s.Status == "pending" || s.Status == "failed" {
 			return true
 		}

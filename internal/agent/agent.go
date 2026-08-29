@@ -77,6 +77,7 @@ type Agent struct {
 	planPendingHandoff bool
 	plan               tools.Plan
 	onPlan             func(tools.Plan)
+	traceStepID        string
 	mu                 sync.RWMutex
 }
 
@@ -215,6 +216,7 @@ func (a *Agent) SetOnPlan(fn func(tools.Plan)) {
 func (a *Agent) LoadPlan(p tools.Plan) {
 	a.mu.Lock()
 	a.plan = p
+	a.todos = p.Todos()
 	if p.HasWork() {
 		a.planPendingHandoff = true
 	}
@@ -437,6 +439,9 @@ func (a *Agent) Run(ctx context.Context, userText string, ev chan<- Event) {
 	handoff := a.isHandoff(userText)
 	if a.shouldOrchestrate(userText) {
 		a.clearHandoff()
+		if a.Mode() == Plan {
+			a.SetMode(Build)
+		}
 		a.runOrchestrated(ctx, ev, &steps, &turnErr)
 		return
 	}
@@ -569,7 +574,7 @@ func (a *Agent) Run(ctx context.Context, userText string, ev chan<- Event) {
 
 func (a *Agent) runToolBatch(ctx context.Context, calls []llm.ToolCall, ev chan<- Event, step int) {
 	for _, tc := range calls {
-		ev <- Event{Type: EventToolStart, Name: tc.Name, Args: tc.Arguments, ToolCallID: tc.ID}
+		ev <- Event{Type: EventToolStart, Name: tc.Name, Args: tc.Arguments, ToolCallID: tc.ID, StepID: a.stepID()}
 	}
 	results := make([]string, len(calls))
 	if parallelSafe(a.tools, calls) {
@@ -605,7 +610,7 @@ func (a *Agent) runToolBatch(ctx context.Context, calls []llm.ToolCall, ev chan<
 			Role: llm.RoleTool, ToolCallID: tc.ID, Name: tc.Name, Content: results[i],
 		})
 		a.mu.Unlock()
-		ev <- Event{Type: EventToolDone, Name: tc.Name, Output: results[i], ToolCallID: tc.ID}
+		ev <- Event{Type: EventToolDone, Name: tc.Name, Output: results[i], ToolCallID: tc.ID, StepID: a.stepID()}
 	}
 }
 
@@ -662,9 +667,9 @@ func (a *Agent) consume(_ context.Context, ch <-chan llm.Event, ev chan<- Event,
 	for e := range ch {
 		switch e.Type {
 		case llm.EventText:
-			ev <- Event{Type: EventText, Text: e.Text}
+			ev <- Event{Type: EventText, Text: e.Text, StepID: a.stepID()}
 		case llm.EventReasoning:
-			ev <- Event{Type: EventThinking, Text: e.Reasoning}
+			ev <- Event{Type: EventThinking, Text: e.Reasoning, StepID: a.stepID()}
 		case llm.EventDone:
 			if e.Usage != nil {
 				usage.PromptTokens += e.Usage.PromptTokens
@@ -757,6 +762,7 @@ func (a *Agent) runTool(ctx context.Context, tc llm.ToolCall, ev chan<- Event, s
 		onPlan := a.onPlan
 		a.mu.Unlock()
 		ev <- Event{Type: EventTodos, Todos: p.Todos()}
+		ev <- Event{Type: EventStatus, Name: "plan", Text: fmt.Sprintf("plan: %d steps · Tab or type go to dispatch", len(p.Steps))}
 		if onPlan != nil {
 			onPlan(p)
 		}

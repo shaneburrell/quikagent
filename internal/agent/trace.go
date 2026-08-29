@@ -44,11 +44,25 @@ func BindSessionPlan(a *Agent, sess *session.Session) {
 	a.SetOnPlan(func(p tools.Plan) { _ = sess.SavePlan(p) })
 }
 
+// SetTraceStepID labels later records (and events) with a plan step id.
+func (a *Agent) SetTraceStepID(id string) {
+	a.mu.Lock()
+	a.traceStepID = id
+	a.mu.Unlock()
+}
+
+func (a *Agent) stepID() string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.traceStepID
+}
+
 func (a *Agent) emitTrace(r session.TraceRecord) {
 	a.mu.RLock()
 	fn := a.trace
 	frontend := a.traceFrontend
 	turn := a.traceTurn
+	stepID := a.traceStepID
 	a.mu.RUnlock()
 	if fn == nil {
 		return
@@ -64,6 +78,9 @@ func (a *Agent) emitTrace(r session.TraceRecord) {
 	}
 	if r.Frontend == "" {
 		r.Frontend = frontend
+	}
+	if r.StepID == "" {
+		r.StepID = stepID
 	}
 	fn(r)
 }

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -15,16 +16,16 @@ import (
 const maxParallelWorkers = 3
 
 func (a *Agent) shouldOrchestrate(userText string) bool {
-	if a.ModelPinned() || a.Mode() != Build {
+	if a.ModelPinned() {
 		return false
 	}
-	if !a.RouterEnabled() {
+	if !isHandoffText(userText) {
 		return false
 	}
 	a.mu.RLock()
-	hasWork := a.plan.HasWork()
+	has := a.plan.HasDispatchableWork()
 	a.mu.RUnlock()
-	return hasWork && isHandoffText(userText)
+	return has
 }
 
 func (a *Agent) runOrchestrated(ctx context.Context, ev chan<- Event, steps *int, turnErr *error) {
@@ -58,7 +59,8 @@ func (a *Agent) runOrchestrated(ctx context.Context, ev chan<- Event, steps *int
 				a.setStepStatus(step.ID, "in_progress", ev)
 				prompt := workerPrompt(step)
 				out, err := a.spawnSubagent(ctx, subagentReq{
-					ID: "general", Prompt: prompt, Model: model, StepID: step.ID, Events: ev,
+					ID: "general", Prompt: prompt, Model: model, StepID: step.ID,
+					Files: step.Files, Events: ev,
 				})
 				results[i] = result{id: step.ID, out: out, err: err, route: route, model: model}
 			}()
@@ -66,6 +68,7 @@ func (a *Agent) runOrchestrated(ctx context.Context, ev chan<- Event, steps *int
 		wg.Wait()
 		*steps += len(batch)
 
+		var okIdx []int
 		for i, res := range results {
 			step := batch[i]
 			if res.err != nil {
@@ -74,27 +77,44 @@ func (a *Agent) runOrchestrated(ctx context.Context, ev chan<- Event, steps *int
 				failed = true
 				continue
 			}
-			revOut, revErr := a.reviewStep(ctx, ev, step, res.out)
-			if revErr != nil {
-				a.setStepStatus(res.id, "failed", ev)
-				fmt.Fprintf(&log, "- %s (%s): review error: %v\n", step.Title, res.route, revErr)
-				failed = true
-				continue
+			okIdx = append(okIdx, i)
+		}
+		if len(okIdx) > 0 {
+			okSteps := make([]tools.PlanStep, len(okIdx))
+			okOuts := make([]string, len(okIdx))
+			for j, i := range okIdx {
+				okSteps[j] = batch[i]
+				okOuts[j] = results[i].out
 			}
-			if reviewFailed(revOut) {
-				a.setStepStatus(res.id, "failed", ev)
-				fmt.Fprintf(&log, "- %s (%s): review FAIL: %s\n", step.Title, res.route, clip(revOut, 200))
+			revOut, revErr := a.reviewWave(ctx, ev, okSteps, okOuts)
+			if revErr != nil || reviewFailed(revOut) {
 				failed = true
-				continue
+				reason := "review FAIL"
+				if revErr != nil {
+					reason = "review error: " + revErr.Error()
+				} else {
+					reason += ": " + clip(revOut, 200)
+				}
+				for _, i := range okIdx {
+					step := batch[i]
+					a.setStepStatus(step.ID, "failed", ev)
+					fmt.Fprintf(&log, "- %s (%s): %s\n", step.Title, results[i].route, reason)
+				}
+			} else {
+				for _, i := range okIdx {
+					step := batch[i]
+					res := results[i]
+					a.setStepStatus(step.ID, "done", ev)
+					fmt.Fprintf(&log, "- %s (%s / %s): ok\n", step.Title, res.route, res.model)
+					fmt.Fprintf(&log, "  %s\n", clip(res.out, 400))
+				}
 			}
-			a.setStepStatus(res.id, "done", ev)
-			fmt.Fprintf(&log, "- %s (%s / %s): ok\n", step.Title, res.route, res.model)
-			fmt.Fprintf(&log, "  %s\n", clip(res.out, 400))
 		}
 		if failed {
 			break
 		}
 	}
+	a.noteConfirmPending(&log)
 
 	summary := a.summarizeDispatch(ctx, ev, log.String())
 	if summary != "" {
@@ -103,6 +123,17 @@ func (a *Agent) runOrchestrated(ctx context.Context, ev chan<- Event, steps *int
 		a.mu.Unlock()
 	}
 	ev <- Event{Type: EventTurnDone}
+}
+
+func (a *Agent) noteConfirmPending(log *strings.Builder) {
+	a.mu.RLock()
+	p := a.plan
+	a.mu.RUnlock()
+	for _, s := range p.Steps {
+		if s.Confirm && (s.Status == "pending" || s.Status == "failed") {
+			fmt.Fprintf(log, "- %s: left pending (needs confirmation)\n", s.Title)
+		}
+	}
 }
 
 func (a *Agent) routeStep(ctx context.Context, ev chan<- Event, step tools.PlanStep) (route, model string) {
@@ -121,31 +152,55 @@ func (a *Agent) routeStep(ctx context.Context, ev chan<- Event, step tools.PlanS
 	} else {
 		route, model = "coder", a.coderModel()
 	}
-	a.mu.Lock()
-	a.lastRoute = route
-	a.mu.Unlock()
+	label := fmt.Sprintf("dispatch %s → %s", step.ID, route)
 	if ev != nil {
-		ev <- Event{Type: EventRoute, Name: route, Model: model, Text: "dispatch " + step.ID}
+		ev <- Event{Type: EventRoute, Name: route, Model: model, Text: label, StepID: step.ID}
 	}
 	a.emitTrace(session.TraceRecord{Type: "dispatch", Route: route, Model: model, StepID: step.ID, Name: step.Title})
 	return route, model
 }
 
-func (a *Agent) reviewStep(ctx context.Context, ev chan<- Event, step tools.PlanStep, workerOut string) (string, error) {
-	prompt := fmt.Sprintf("Step %s (%s):\n%s\n\nWorker result:\n%s\n", step.ID, step.Title, step.Detail, clip(workerOut, 1500))
+func (a *Agent) reviewerModel() string {
+	a.mu.RLock()
+	small := a.opts.SmallModel
+	a.mu.RUnlock()
+	if small != "" {
+		return small
+	}
+	if rm, ok := a.router.(interface{ RouteModel(string) string }); ok {
+		if m := rm.RouteModel("nano"); m != "" {
+			return m
+		}
+	}
+	return a.coderModel()
+}
+
+func (a *Agent) reviewWave(ctx context.Context, ev chan<- Event, batch []tools.PlanStep, outs []string) (string, error) {
+	var b strings.Builder
+	ids := make([]string, 0, len(batch))
+	for i, step := range batch {
+		ids = append(ids, step.ID)
+		fmt.Fprintf(&b, "Step %s (%s):\n%s\n\nWorker result:\n%s\n\n", step.ID, step.Title, step.Detail, clip(outs[i], 1500))
+	}
+	model := a.reviewerModel()
+	sid := strings.Join(ids, ",") + "/review"
+	if ev != nil {
+		ev <- Event{Type: EventRoute, Name: "reviewer", Model: model, Text: "dispatch " + sid + " → " + model, StepID: sid}
+	}
 	return a.spawnSubagent(ctx, subagentReq{
-		ID: "reviewer", Prompt: prompt, StepID: step.ID + "/review", Events: ev,
+		ID: "reviewer", Prompt: b.String(), Model: model, StepID: sid, Events: ev,
 	})
 }
 
 func (a *Agent) summarizeDispatch(ctx context.Context, ev chan<- Event, log string) string {
 	model := a.plannerModel()
 	prompt := "Summarize what the workers implemented. Do not call tools.\n\n" + log
+	userMsg := llm.Message{Role: llm.RoleUser, Content: prompt}
 	a.mu.RLock()
 	wire := append([]llm.Message{
 		{Role: llm.RoleSystem, Content: systemPrompt(a.opts, Build)},
 	}, a.messages...)
-	wire = append(wire, llm.Message{Role: llm.RoleUser, Content: prompt})
+	wire = append(wire, userMsg)
 	maxTok := a.opts.MaxTokens
 	a.mu.RUnlock()
 	ch, err := a.chat(ctx, model, wire, nil, maxTok)
@@ -157,6 +212,9 @@ func (a *Agent) summarizeDispatch(ctx context.Context, ev chan<- Event, log stri
 	if !ok || assistant == nil || strings.TrimSpace(assistant.Content) == "" {
 		return strings.TrimSpace(log)
 	}
+	a.mu.Lock()
+	a.messages = append(a.messages, userMsg)
+	a.mu.Unlock()
 	return assistant.Content
 }
 
@@ -172,6 +230,9 @@ func (a *Agent) nextWave() []tools.PlanStep {
 	}
 	var ready []tools.PlanStep
 	for _, s := range p.Steps {
+		if s.Confirm {
+			continue
+		}
 		if s.Status != "pending" && s.Status != "failed" {
 			continue
 		}
@@ -195,8 +256,17 @@ func pickNonOverlapping(ready []tools.PlanStep, capN int) []tools.PlanStep {
 	}
 	var out []tools.PlanStep
 	for _, s := range ready {
+		if s.Confirm {
+			continue
+		}
 		if len(out) >= capN {
 			break
+		}
+		if len(s.Files) == 0 {
+			if len(out) == 0 {
+				return []tools.PlanStep{s}
+			}
+			continue
 		}
 		conflict := false
 		for _, taken := range out {
@@ -258,11 +328,17 @@ func workerPrompt(step tools.PlanStep) string {
 }
 
 func reviewFailed(out string) bool {
-	u := strings.ToUpper(out)
-	if strings.Contains(u, "PASS") {
-		return false
+	first := firstLine(out)
+	u := strings.ToUpper(strings.TrimSpace(first))
+	return !strings.HasPrefix(u, "PASS")
+}
+
+func firstLine(s string) string {
+	s = strings.TrimSpace(s)
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return strings.TrimSpace(s[:i])
 	}
-	return strings.Contains(u, "FAIL")
+	return s
 }
 
 func (a *Agent) setStepStatus(id, status string, ev chan<- Event) {
@@ -284,4 +360,47 @@ func (a *Agent) setStepStatus(id, status string, ev chan<- Event) {
 	if onPlan != nil {
 		onPlan(p)
 	}
+}
+
+func dispatchAllow(parent AllowFunc, files []string) AllowFunc {
+	return func(ctx context.Context, name, args string) error {
+		if scopedFileAllow(name, args, files) {
+			return nil
+		}
+		if parent != nil {
+			return parent(ctx, name, args)
+		}
+		return nil
+	}
+}
+
+func scopedFileAllow(name, args string, files []string) bool {
+	if len(files) == 0 {
+		return false
+	}
+	switch name {
+	case "write", "edit", "read":
+	default:
+		return false
+	}
+	path := toolArgPath(args)
+	if path == "" {
+		return false
+	}
+	for _, f := range files {
+		if pathOverlap(path, f) {
+			return true
+		}
+	}
+	return false
+}
+
+func toolArgPath(args string) string {
+	var m struct {
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal([]byte(args), &m); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(m.Path)
 }

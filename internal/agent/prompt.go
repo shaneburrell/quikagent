@@ -11,10 +11,11 @@ import (
 
 // Options configures an Agent.
 type Options struct {
-	Workdir   string
-	Model     string
-	PlanModel string // optional; used for plan-mode turns when set
-	MaxTokens int
+	Workdir    string
+	Model      string
+	PlanModel  string // optional; used for plan-mode turns when set
+	SmallModel string // optional; reviewer and compact summarizer
+	MaxTokens  int
 }
 
 // Mode selects the tool surface. Build exposes all tools; Plan is
@@ -47,7 +48,7 @@ func systemPrompt(opts Options, mode Mode) string {
 	fmt.Fprintf(&b, "- Date: %s\n", time.Now().Format("2006-01-02"))
 	fmt.Fprintf(&b, "- Model: %s\n\n", opts.Model)
 	if mode == Plan {
-		b.WriteString("# Plan mode\nYou are in plan mode. Do NOT modify anything: you only have read-only tools (read, glob, grep, list, fetch, git, question, skill, plan, and websearch or lsp if configured). Investigate, then propose a concrete step-by-step plan. Do not write to files.\nIf the user asks you to implement or go ahead, tell them to press Tab or type /build to leave plan mode. Do not pretend to write files.\nDo not call skill unless the name is listed in the skill tool description. If none are listed, skip skill.\nAfter a short investigate (list, read, git, grep), call the plan tool with concrete steps (id, title, detail, files, deps), then write the plan and stop. Do not call more tools after the plan.\nAt most two question calls, and only for real product choices (name, stack). Never ask permission to implement. Never start implementing.\n\n")
+		b.WriteString("# Plan mode\nYou are in plan mode. Do NOT modify anything: you only have read-only tools (read, glob, grep, list, fetch, git, question, skill, plan, and websearch or lsp if configured). Investigate, then propose a concrete step-by-step plan. Do not write to files.\nIf the user asks you to implement before a plan is recorded, tell them to wait. After the plan tool, they type go to dispatch (Tab or /build is optional). Do not pretend to write files.\nDo not call skill unless the name is listed in the skill tool description. If none are listed, skip skill.\nAfter a short investigate (list, read, git, grep), call the plan tool with concrete steps (id, title, detail, files, deps; confirm:true for steps that need the user). Then write the plan and stop. Do not call more tools after the plan.\nAt most two question calls, and only for real product choices (name, stack). Never ask permission to implement. Never start implementing.\n\n")
 	}
 	b.WriteString("# Guidelines\n")
 	if mode == Plan {

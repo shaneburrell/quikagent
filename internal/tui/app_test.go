@@ -342,6 +342,25 @@ func TestEventRouteDoesNotWriteCfgModel(t *testing.T) {
 	}
 }
 
+func TestEventRouteDispatchKeepsParentRoute(t *testing.T) {
+	a := &App{model: NewModel(), route: "qwen"}
+	a.handleEvent(agent.Event{
+		Type: agent.EventRoute, Name: "nano", Model: "nano-q4",
+		Text: "dispatch tidy → nano", StepID: "tidy",
+	})
+	if a.route != "qwen" {
+		t.Fatalf("parent route overwritten to %q", a.route)
+	}
+}
+
+func TestEventStatusPlanIsNote(t *testing.T) {
+	a := &App{model: NewModel()}
+	a.handleEvent(agent.Event{Type: agent.EventStatus, Name: "plan", Text: "plan: 5 steps · Tab or type go to dispatch"})
+	if a.phase == "plan" {
+		t.Fatal("plan hint should not become the wait phase")
+	}
+}
+
 func TestReplayHistoryClosesToolsAndThinking(t *testing.T) {
 	a := &App{model: NewModel()}
 	a.model.SetWidth(80)
