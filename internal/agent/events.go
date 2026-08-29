@@ -32,6 +32,7 @@ type Event struct {
 	Err        error      // EventError
 	Todos      []TodoItem // EventTodos
 	ToolCallID string     // EventToolStart, EventToolDone
+	StepID     string     // orchestrated worker/reviewer (dispatch tidy)
 }
 
 // Usage is cumulative token accounting for a turn.

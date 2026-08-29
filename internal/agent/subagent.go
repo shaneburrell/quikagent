@@ -32,6 +32,7 @@ type subagentReq struct {
 	Prompt string
 	Model  string
 	StepID string
+	Files  []string
 	Events chan<- Event
 }
 
@@ -87,6 +88,10 @@ func (a *Agent) spawnSubagent(ctx context.Context, req subagentReq) (string, err
 
 	childTools = childTools.Without("task", "plan")
 
+	if kind == "reviewer" && req.Model == "" {
+		req.Model = a.reviewerModel()
+	}
+
 	parentModel := a.Model()
 	child := New(a.llm, childTools, a.opts)
 	if child.tools != nil {
@@ -94,13 +99,23 @@ func (a *Agent) spawnSubagent(ctx context.Context, req subagentReq) (string, err
 	}
 	child.stepLimit = subagentMaxSteps
 	child.SetMode(mode)
-	child.SetAllowTool(a.allowTool)
+	if kind == "reviewer" {
+		child.planModel = ""
+	}
+	if kind == "general" && len(req.Files) > 0 {
+		child.SetAllowTool(dispatchAllow(a.allowTool, req.Files))
+	} else {
+		child.SetAllowTool(a.allowTool)
+	}
 	child.SetSummarizer(a.summarizer)
 	a.mu.RLock()
 	fn, fe := a.trace, a.traceFrontend
 	a.mu.RUnlock()
 	child.SetTrace(fn)
 	child.SetTraceFrontend(fe)
+	if req.StepID != "" {
+		child.SetTraceStepID(req.StepID)
+	}
 	if req.Model != "" {
 		child.setModel(req.Model, false)
 	}
@@ -109,6 +124,9 @@ func (a *Agent) spawnSubagent(ctx context.Context, req subagentReq) (string, err
 	go child.Run(ctx, prefix+req.Prompt, ev)
 	var last string
 	for e := range ev {
+		if e.StepID == "" {
+			e.StepID = req.StepID
+		}
 		switch e.Type {
 		case EventText:
 			last += e.Text

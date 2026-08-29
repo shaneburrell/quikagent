@@ -154,6 +154,7 @@ func NewApp(term *Terminal, ag *agent.Agent, client *llm.Client, sess *session.S
 	ag.SetOnCompact(func([]llm.Message) { a.compacted.Store(true) })
 	agent.BindSessionTrace(ag, sess, "tui")
 	agent.BindSessionPlan(ag, sess)
+	a.todos = ag.Todos()
 	a.refreshSideData()
 	return a
 }
@@ -1150,6 +1151,7 @@ func (a *App) command(text string) {
 		a.sess = loaded
 		agent.BindSessionTrace(a.agent, loaded, "tui")
 		agent.BindSessionPlan(a.agent, loaded)
+		a.todos = a.agent.Todos()
 		a.agent.LoadHistory(loaded.Messages())
 		a.model.Reset()
 		a.ReplayHistory(loaded.Messages())
@@ -1299,9 +1301,19 @@ func matchSessionPrefix(id string, infos []session.Info) (matched string, ambigu
 func (a *App) handleEvent(e agent.Event) {
 	switch e.Type {
 	case agent.EventRoute:
-		a.route = e.Name
-		a.model.Note(fmt.Sprintf("route: %s → %s", e.Name, e.Model))
+		if e.StepID == "" {
+			a.route = e.Name
+		}
+		note := e.Text
+		if note == "" {
+			note = fmt.Sprintf("%s → %s", e.Name, e.Model)
+		}
+		a.model.Note("route: " + note)
 	case agent.EventStatus:
+		if e.Name == "plan" && e.Text != "" {
+			a.model.Note(e.Text)
+			break
+		}
 		name := e.Name
 		if name == "" {
 			name = e.Text
@@ -1320,10 +1332,18 @@ func (a *App) handleEvent(e agent.Event) {
 		a.markStreamUpdate()
 	case agent.EventToolStart:
 		a.phase = ""
-		a.model.ToolStart(e.Name, e.Args, e.ToolCallID)
+		name := e.Name
+		if e.StepID != "" {
+			name = e.StepID + " " + name
+		}
+		a.model.ToolStart(name, e.Args, e.ToolCallID)
 		a.markStreamUpdate()
 	case agent.EventToolDone:
-		a.model.ToolDone(e.Name, e.Output, e.ToolCallID)
+		name := e.Name
+		if e.StepID != "" {
+			name = e.StepID + " " + name
+		}
+		a.model.ToolDone(name, e.Output, e.ToolCallID)
 		a.syncSession()
 		a.markStreamUpdate()
 	case agent.EventTodos:

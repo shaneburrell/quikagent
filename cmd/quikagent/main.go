@@ -167,10 +167,11 @@ func run(print string, cont bool, sessionID string, plan bool, webListen string,
 
 	client := llm.New(cfg.BaseURL, cfg.APIKey, cfg.Model)
 	ag := agent.New(client, registry, agent.Options{
-		Workdir:   workdir,
-		Model:     cfg.Model,
-		PlanModel: cfg.PlanModel,
-		MaxTokens: cfg.MaxTokens,
+		Workdir:    workdir,
+		Model:      cfg.Model,
+		PlanModel:  cfg.PlanModel,
+		SmallModel: cfg.SmallModel,
+		MaxTokens:  cfg.MaxTokens,
 	})
 
 	// Set up LLM-based summarizer for compaction

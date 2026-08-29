@@ -32,6 +32,24 @@ func TestPlanToolRecordsSteps(t *testing.T) {
 	}
 }
 
+func TestPlanToolRecordsConfirm(t *testing.T) {
+	p := NewPlan()
+	_, err := p.Run(context.Background(), json.RawMessage(`{"steps":[{"id":"init","title":"git init","confirm":true}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := p.Plan()
+	if len(got.Steps) != 1 || !got.Steps[0].Confirm {
+		t.Fatalf("%+v", got)
+	}
+	if got.HasDispatchableWork() {
+		t.Fatal("confirm-only plan is not dispatchable")
+	}
+	if !got.HasWork() {
+		t.Fatal("confirm pending is still work")
+	}
+}
+
 func TestPlanToolRejectsDuplicateIDs(t *testing.T) {
 	p := NewPlan()
 	_, err := p.Run(context.Background(), json.RawMessage(`{"steps":[{"id":"a","title":"one"},{"id":"a","title":"two"}]}`))

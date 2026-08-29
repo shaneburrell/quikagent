@@ -72,7 +72,7 @@ jq -s 'map(select(.type=="compact")) | length' ~/.quikagent/sessions/*.trace.jso
 `/clear`, `/sessions`, `/resume <id>`, `/compact`, `/refresh`, `/undo`,
 `/redo`, `/init`.
 
-- **`/plan`** / **`/build`** / **`/mode`** — switch tool surface (works during a turn). `/mode` with no argument toggles. Same as **Tab**. Plan turns still ask Arch-Router (with a plan-and-design hint) unless `plan_model` is set, which skips Arch. After a plan, Tab + `go` (or `yes` / `implement`) is a handoff: Arch routes as implement, not `other`. If the turn recorded a structured `plan`, quikagent dispatches each step through Arch (`nano` / `coder`) and the status bar shows `dispatch <step>`. A pinned `/model` still wins and skips auto-dispatch. Arch `other` on a normal turn is off-topic or done and keeps the current model.
+- **`/plan`** / **`/build`** / **`/mode`** — switch tool surface (works during a turn). `/mode` with no argument toggles. Same as **Tab**. Plan turns still ask Arch-Router (with a plan-and-design hint) unless `plan_model` is set, which skips Arch. After a recorded `plan`, type `go` (or `yes` / `implement`) to dispatch — Tab is optional; plan mode switches to build in that turn. Arch routes each step as implement (`nano` / `coder`); without a router, workers use the home/coder model. Status shows `dispatch <step> → <route>`. Steps marked `confirm` stay pending. A pinned `/model` still wins and skips auto-dispatch. Arch `other` on a normal turn is off-topic or done and keeps the current model.
 
 - **`/models`** — pick from API `/v1/models` (merged with config defaults); first row is **auto (Arch-Router)**.
 - **`/model auto`** / **F2** — enable per-turn routing; pinning a model disables it until auto again.
@@ -102,7 +102,7 @@ the session. Web **Always** is the same scope.
 ## Print, plan, web
 
 - **Print:** one turn, stdout. Prompts on stdin unless `-yes`.
-- **Plan:** read-only tools only (`--plan`, **Tab**, or `/plan` / `/build`). Arch still chooses the model unless `plan_model` (or `QUIKAGENT_PLAN_MODEL`) is set. Tab to build and send `go` to implement (or dispatch recorded plan steps).
+- **Plan:** read-only tools only (`--plan`, **Tab**, or `/plan` / `/build`). Arch still chooses the model unless `plan_model` (or `QUIKAGENT_PLAN_MODEL`) is set. After the plan tool, type `go` to dispatch recorded steps (Tab is optional).
 - **Web:** SSE UI on loopback by default. Reach it remotely with SSH,
   Tailscale, or Cloudflared ([hosting.md](hosting.md)). Do not use
   `--web-listen-all` as a hosted path. UI limits: [web-ui.md](web-ui.md).

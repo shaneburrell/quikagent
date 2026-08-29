@@ -293,7 +293,7 @@ func (s *Server) forward(ev <-chan agent.Event, turnSess *session.Session) {
 		s.mu.Unlock()
 	}()
 	for e := range ev {
-		if e.Type == agent.EventRoute {
+		if e.Type == agent.EventRoute && e.StepID == "" {
 			s.mu.Lock()
 			s.lastRoute = e.Name
 			s.mu.Unlock()

@@ -22,7 +22,7 @@ Registered by default:
 | `fetch` | HTTP GET (public URLs; blocks private/loopback) | yes |
 | `git` | Git in the workdir | yes |
 | `todo` | In-session todo list | no |
-| `plan` | Structured plan steps (id, title, detail, files, deps) | yes |
+| `plan` | Structured plan steps (id, title, detail, files, deps, confirm) | yes |
 | `question` | Ask the user a structured question | yes |
 | `apply_patch` | Multi-file patch | no |
 
