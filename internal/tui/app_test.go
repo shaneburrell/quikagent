@@ -653,6 +653,30 @@ func TestOverlayKeysWinOverApproval(t *testing.T) {
 	}
 }
 
+func TestSyncSessionOnStatusAndToolDone(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	sess, err := session.Create()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ag := testAgent("fake")
+	ag.LoadHistory([]llm.Message{{Role: llm.RoleUser, Content: "hi"}})
+	a := &App{model: NewModel(), agent: ag, sess: sess}
+	a.handleEvent(agent.Event{Type: agent.EventStatus, Name: "waiting"})
+	if n := len(sess.Messages()); n != 1 {
+		t.Fatalf("after status messages = %d", n)
+	}
+	ag.LoadHistory([]llm.Message{
+		{Role: llm.RoleUser, Content: "hi"},
+		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "c1", Name: "list"}}},
+		{Role: llm.RoleTool, ToolCallID: "c1", Name: "list", Content: "ok"},
+	})
+	a.handleEvent(agent.Event{Type: agent.EventToolDone, Name: "list", Output: "ok", ToolCallID: "c1"})
+	if n := len(sess.Messages()); n != 3 {
+		t.Fatalf("after tool done messages = %d", n)
+	}
+}
+
 func TestShortIDRuneSafe(t *testing.T) {
 	id := strings.Repeat("世", 20)
 	got := shortID(id)

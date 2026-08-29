@@ -133,11 +133,11 @@ func DefaultRoutes() map[string]RouteTarget {
 		},
 		"qwen": {
 			Model:       DefaultModel,
-			Description: "Architecture and design tradeoffs, deep debugging of subtle failures, long analysis, vision and images — NOT routine write/edit/refactor/implement code",
+			Description: "Planning, proposing a design, architecture and design tradeoffs, deep debugging of subtle failures, long analysis, vision and images — NOT routine write/edit/refactor/implement code",
 		},
 		"other": {
 			Model:       DefaultModel,
-			Description: "Intent unclear — keep the coding model",
+			Description: "Intent unclear — keep the current model; do not switch",
 		},
 	}
 }

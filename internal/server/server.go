@@ -303,6 +303,11 @@ func (s *Server) forward(ev <-chan agent.Event, turnSess *session.Session) {
 			s.todos = append([]tools.TodoItem(nil), e.Todos...)
 			s.mu.Unlock()
 		}
+		if e.Type == agent.EventStatus || e.Type == agent.EventToolDone {
+			s.mu.Lock()
+			s.syncSession(turnSess)
+			s.mu.Unlock()
+		}
 		payload, err := encodeEvent(e)
 		if err != nil {
 			log.Printf("quikagent: encode event: %v", err)
@@ -537,16 +542,17 @@ func (s *Server) broadcast(payload []byte, reliable bool) {
 }
 
 type wireEvent struct {
-	Type   string     `json:"type"`
-	Text   string     `json:"text,omitempty"`
-	Output string     `json:"output,omitempty"`
-	Name   string     `json:"name,omitempty"`
-	Args   string     `json:"args,omitempty"`
-	Model  string     `json:"model,omitempty"`
-	Error  string     `json:"error,omitempty"`
-	Prompt int        `json:"prompt_tokens,omitempty"`
-	Compl  int        `json:"completion_tokens,omitempty"`
-	Todos  []wireTodo `json:"todos,omitempty"`
+	Type       string     `json:"type"`
+	Text       string     `json:"text,omitempty"`
+	Output     string     `json:"output,omitempty"`
+	Name       string     `json:"name,omitempty"`
+	Args       string     `json:"args,omitempty"`
+	Model      string     `json:"model,omitempty"`
+	Error      string     `json:"error,omitempty"`
+	Prompt     int        `json:"prompt_tokens,omitempty"`
+	Compl      int        `json:"completion_tokens,omitempty"`
+	Todos      []wireTodo `json:"todos,omitempty"`
+	ToolCallID string     `json:"tool_call_id,omitempty"`
 }
 
 type wireTodo struct {
@@ -637,10 +643,12 @@ func encodeEvent(e agent.Event) ([]byte, error) {
 		w.Type = "tool_start"
 		w.Name = e.Name
 		w.Args = e.Args
+		w.ToolCallID = e.ToolCallID
 	case agent.EventToolDone:
 		w.Type = "tool_done"
 		w.Name = e.Name
 		w.Output = e.Output
+		w.ToolCallID = e.ToolCallID
 	case agent.EventRoute:
 		w.Type = "route"
 		w.Name = e.Name

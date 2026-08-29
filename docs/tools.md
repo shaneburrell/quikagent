@@ -1,7 +1,10 @@
 # Tools
 
 The model gets a registry sandboxed to the working directory (except
-`fetch`). Plan mode exposes read-only tools only.
+`fetch`). Plan mode exposes read-only tools only. A step that contains
+only read-only tools (except `question`) may run those calls
+concurrently; mutators, MCP, `task`, `todo`, and `question` keep the
+whole step serial.
 
 ## Built-in
 
@@ -26,7 +29,7 @@ Registered by default:
 
 | Tool | When | Plan |
 |------|------|------|
-| `skill` | Always available once the agent starts (loads `SKILL.md`) | yes |
+| `skill` | Always available once the agent starts (loads `SKILL.md`; advertises installed names) | yes |
 | `task` | Spawns a child agent (`explore`, `general`, or custom) | no |
 | `websearch` | `websearch_url` / `QUIKAGENT_WEBSEARCH_URL` | yes |
 | `lsp` | `lsp.command` set | yes |

@@ -2,12 +2,15 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"quikagent/internal/llm"
 	"quikagent/internal/session"
@@ -268,6 +271,65 @@ func TestPlanModeLimitsTools(t *testing.T) {
 	if !strings.Contains(sys, "skill") {
 		t.Fatal("plan prompt should mention skill")
 	}
+	if !strings.Contains(sys, "write the plan") {
+		t.Fatal("plan prompt should tell the model to write the plan and stop")
+	}
+	if !strings.Contains(sys, "two question") {
+		t.Fatal("plan prompt should mention the question limit")
+	}
+}
+
+func TestPlanModeCapsQuestions(t *testing.T) {
+	ask := func(context.Context, tools.Question) (string, error) {
+		return "yes", nil
+	}
+	q := func(id string) llm.ToolCall {
+		return llm.ToolCall{ID: id, Name: "question", Arguments: `{"question":"ok?"}`}
+	}
+	fake := &fakeLLM{scripts: []script{
+		{toolCalls: []llm.ToolCall{q("q1")}},
+		{toolCalls: []llm.ToolCall{q("q2")}},
+		{toolCalls: []llm.ToolCall{q("q3")}},
+		{text: "here is a plan"},
+	}}
+	a := newTestAgent(t.TempDir(), fake)
+	a.SetQuestionAsk(ask)
+	a.SetMode(Plan)
+	events := collect(t, run(a, "plan a tool"))
+	var outs []string
+	for _, e := range events {
+		if e.Type == EventToolDone {
+			outs = append(outs, e.Output)
+		}
+	}
+	if len(outs) != 3 {
+		t.Fatalf("tool dones = %d %v", len(outs), outs)
+	}
+	if !strings.Contains(outs[0], "User answered") || !strings.Contains(outs[1], "User answered") {
+		t.Fatalf("first two should succeed: %v", outs)
+	}
+	if !strings.Contains(outs[2], "at most 2 questions") || !strings.Contains(outs[2], "write the plan") {
+		t.Fatalf("third should hit the cap: %q", outs[2])
+	}
+
+	fake2 := &fakeLLM{scripts: []script{
+		{toolCalls: []llm.ToolCall{q("b1")}},
+		{toolCalls: []llm.ToolCall{q("b2")}},
+		{toolCalls: []llm.ToolCall{q("b3")}},
+		{text: "ok"},
+	}}
+	b := newTestAgent(t.TempDir(), fake2)
+	b.SetQuestionAsk(ask)
+	events = collect(t, run(b, "ask thrice"))
+	var n int
+	for _, e := range events {
+		if e.Type == EventToolDone && strings.Contains(e.Output, "User answered") {
+			n++
+		}
+	}
+	if n != 3 {
+		t.Fatalf("build mode question successes = %d, want 3", n)
+	}
 }
 
 func TestThinkingForwarded(t *testing.T) {
@@ -441,11 +503,13 @@ type fakeRouter struct {
 	route, model string
 	err          error
 	calls        int
+	lastMode     string
 }
 
-func (f *fakeRouter) Select(ctx context.Context, userText string) (string, string, error) {
+func (f *fakeRouter) Select(ctx context.Context, userText, mode string) (string, string, string, error) {
 	f.calls++
-	return f.route, f.model, f.err
+	f.lastMode = mode
+	return f.route, f.model, "", f.err
 }
 
 func TestNewDoesNotMutateCallerRegistry(t *testing.T) {
@@ -814,6 +878,9 @@ func TestPlanModeWithoutPlanModelStillRoutes(t *testing.T) {
 	if r.calls != 1 {
 		t.Fatalf("router calls = %d, want 1", r.calls)
 	}
+	if r.lastMode != "plan" {
+		t.Fatalf("router mode = %q, want plan", r.lastMode)
+	}
 	var routed bool
 	for _, e := range events {
 		if e.Type == EventRoute && e.Name == "qwen" && e.Model == "qwen-routed" {
@@ -949,6 +1016,119 @@ func run(a *Agent, text string) <-chan Event {
 	ch := make(chan Event, 64)
 	go a.Run(context.Background(), text, ch)
 	return ch
+}
+
+type probeTool struct {
+	name     string
+	ro       bool
+	sleep    time.Duration
+	inFlight *int32
+	max      *int32
+}
+
+func (p *probeTool) Spec() llm.Tool {
+	return llm.Tool{Name: p.name, Description: "probe", Parameters: []byte(`{"type":"object","properties":{}}`)}
+}
+func (p *probeTool) ReadOnly() bool { return p.ro }
+func (p *probeTool) Run(context.Context, json.RawMessage) (string, error) {
+	if p.inFlight != nil {
+		n := atomic.AddInt32(p.inFlight, 1)
+		for {
+			old := atomic.LoadInt32(p.max)
+			if n <= old || atomic.CompareAndSwapInt32(p.max, old, n) {
+				break
+			}
+		}
+		defer atomic.AddInt32(p.inFlight, -1)
+	}
+	if p.sleep > 0 {
+		time.Sleep(p.sleep)
+	}
+	return p.name + "-ok", nil
+}
+
+func TestParallelReadOnlyToolBatch(t *testing.T) {
+	var inFlight, max int32
+	reg := tools.New(t.TempDir())
+	for _, name := range []string{"probe_a", "probe_b", "probe_c"} {
+		reg.Add(&probeTool{name: name, ro: true, sleep: 80 * time.Millisecond, inFlight: &inFlight, max: &max})
+	}
+	fake := &fakeLLM{scripts: []script{
+		{toolCalls: []llm.ToolCall{
+			{ID: "a", Name: "probe_a", Arguments: `{}`},
+			{ID: "b", Name: "probe_b", Arguments: `{}`},
+			{ID: "c", Name: "probe_c", Arguments: `{}`},
+		}},
+		{text: "done"},
+	}}
+	a := New(fake, reg, Options{Workdir: t.TempDir(), Model: "fake", MaxTokens: 100})
+	start := time.Now()
+	events := collect(t, run(a, "go"))
+	if elapsed := time.Since(start); elapsed > 200*time.Millisecond {
+		t.Fatalf("elapsed %s; expected parallel (~80ms)", elapsed)
+	}
+	if atomic.LoadInt32(&max) < 2 {
+		t.Fatalf("max in-flight = %d, want >= 2", max)
+	}
+	var dones []Event
+	for _, e := range events {
+		if e.Type == EventToolDone {
+			dones = append(dones, e)
+		}
+	}
+	if len(dones) != 3 || dones[0].ToolCallID != "a" || dones[1].ToolCallID != "b" || dones[2].ToolCallID != "c" {
+		t.Fatalf("dones = %+v", dones)
+	}
+	hist := a.Messages()
+	if len(hist) < 5 {
+		t.Fatalf("history len = %d", len(hist))
+	}
+	if hist[2].Content != "probe_a-ok" || hist[3].Content != "probe_b-ok" || hist[4].Content != "probe_c-ok" {
+		t.Fatalf("tool order = %q %q %q", hist[2].Content, hist[3].Content, hist[4].Content)
+	}
+}
+
+func TestMixedToolsStaySequential(t *testing.T) {
+	var inFlight, max int32
+	reg := tools.New(t.TempDir())
+	reg.Add(&probeTool{name: "probe_ro", ro: true, sleep: 60 * time.Millisecond, inFlight: &inFlight, max: &max})
+	reg.Add(&probeTool{name: "probe_w", ro: false, sleep: 60 * time.Millisecond, inFlight: &inFlight, max: &max})
+	fake := &fakeLLM{scripts: []script{
+		{toolCalls: []llm.ToolCall{
+			{ID: "r", Name: "probe_ro", Arguments: `{}`},
+			{ID: "w", Name: "probe_w", Arguments: `{}`},
+		}},
+		{text: "done"},
+	}}
+	a := New(fake, reg, Options{Workdir: t.TempDir(), Model: "fake", MaxTokens: 100})
+	_ = collect(t, run(a, "go"))
+	if atomic.LoadInt32(&max) != 1 {
+		t.Fatalf("max in-flight = %d, want 1", max)
+	}
+}
+
+func TestQuestionBatchStaysSequential(t *testing.T) {
+	var inFlight, max int32
+	reg := tools.New(t.TempDir())
+	reg.Add(&probeTool{name: "probe_a", ro: true, sleep: 40 * time.Millisecond, inFlight: &inFlight, max: &max})
+	reg.Add(&probeTool{name: "probe_b", ro: true, sleep: 40 * time.Millisecond, inFlight: &inFlight, max: &max})
+	fake := &fakeLLM{scripts: []script{
+		{toolCalls: []llm.ToolCall{
+			{ID: "q", Name: "question", Arguments: `{"question":"ok?"}`},
+			{ID: "a", Name: "probe_a", Arguments: `{}`},
+			{ID: "b", Name: "probe_b", Arguments: `{}`},
+		}},
+		{text: "done"},
+	}}
+	a := New(fake, reg, Options{Workdir: t.TempDir(), Model: "fake", MaxTokens: 100})
+	a.SetQuestionAsk(func(context.Context, tools.Question) (string, error) {
+		time.Sleep(40 * time.Millisecond)
+		return "yes", nil
+	})
+	_ = collect(t, run(a, "go"))
+	if atomic.LoadInt32(&max) != 1 {
+		t.Fatalf("max in-flight = %d, want 1", max)
+	}
 }
 
 func writeFile(dir, name, content string) error {

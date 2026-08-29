@@ -62,12 +62,12 @@ func TestModelTextMergesDeltas(t *testing.T) {
 func TestModelToolLifecycle(t *testing.T) {
 	m := NewModel()
 	m.SetWidth(80)
-	m.ToolStart("bash", `{"command":"ls -la"}`)
+	m.ToolStart("bash", `{"command":"ls -la"}`, "")
 	rows := m.Rows()
 	if head := rowTexts(rows)[0]; !strings.Contains(head, "bash") || !strings.Contains(head, "ls -la") {
 		t.Fatalf("running head = %q", head)
 	}
-	m.ToolDone("bash", "file.go\nmain.go")
+	m.ToolDone("bash", "file.go\nmain.go", "")
 	rows = m.Rows()
 	txt := rowTexts(rows)
 	if !strings.Contains(txt[0], "✓") || !strings.Contains(txt[0], "bash") {
@@ -77,8 +77,8 @@ func TestModelToolLifecycle(t *testing.T) {
 	if strings.Contains(joined, "file.go") {
 		t.Fatalf("successful tool should collapse: %q", joined)
 	}
-	m.ToolStart("write", `{"path":"x"}`)
-	m.ToolDone("write", "Error: boom")
+	m.ToolStart("write", `{"path":"x"}`, "")
+	m.ToolDone("write", "Error: boom", "")
 	rows = m.Rows()
 	joined = strings.Join(rowTexts(rows), "\n")
 	if !strings.Contains(joined, "Error: boom") {
@@ -128,7 +128,7 @@ func TestModelWaitLifecycle(t *testing.T) {
 		t.Fatalf("thinking should clear wait card: %q", joined)
 	}
 	m.Status("waiting")
-	m.ToolStart("bash", `{"command":"ls"}`)
+	m.ToolStart("bash", `{"command":"ls"}`, "")
 	joined = strings.Join(rowTexts(m.Rows()), "\n")
 	if strings.Contains(joined, "waiting") {
 		t.Fatalf("tool start should clear wait card: %q", joined)
@@ -158,8 +158,8 @@ func TestArgSummaryPatchAndQuery(t *testing.T) {
 func TestModelToolErrorFlag(t *testing.T) {
 	m := NewModel()
 	m.SetWidth(80)
-	m.ToolStart("bash", `{"command":"nope"}`)
-	m.ToolDone("bash", "Error: exit status 127")
+	m.ToolStart("bash", `{"command":"nope"}`, "")
+	m.ToolDone("bash", "Error: exit status 127", "")
 	head := rowTexts(m.Rows())[0]
 	if !strings.Contains(head, "✗") {
 		t.Fatalf("head = %q", head)
@@ -181,8 +181,8 @@ func TestModelNoteAndError(t *testing.T) {
 func TestModelLongOutputClipped(t *testing.T) {
 	m := NewModel()
 	m.SetWidth(80)
-	m.ToolStart("read", `{"file_path":"big.txt"}`)
-	m.ToolDone("read", strings.Repeat("x\n", 500))
+	m.ToolStart("read", `{"file_path":"big.txt"}`, "")
+	m.ToolDone("read", strings.Repeat("x\n", 500), "")
 	m.blocks[len(m.blocks)-1].collapsed = false
 	rows := m.Rows()
 	if len(rows) > maxToolOutputLines+3 {
@@ -202,6 +202,9 @@ func TestArgSummary(t *testing.T) {
 	}
 	if got := argSummary("not json"); got != "" {
 		t.Fatalf("got %q", got)
+	}
+	if got := argSummary(`{"name":"go-module-init"}`); got != "go-module-init" {
+		t.Fatalf("name = %q", got)
 	}
 }
 
@@ -342,11 +345,29 @@ func TestRenderMarkdownLinkQuoteStrike(t *testing.T) {
 	}
 }
 
+func TestToolDoneMatchesByID(t *testing.T) {
+	m := NewModel()
+	m.SetWidth(80)
+	m.ToolStart("read", `{"path":"a"}`, "id-a")
+	m.ToolStart("read", `{"path":"b"}`, "id-b")
+	m.ToolDone("read", "first", "id-a")
+	if !m.blocks[0].done || m.blocks[0].out != "first" {
+		t.Fatalf("first card = done=%v out=%q", m.blocks[0].done, m.blocks[0].out)
+	}
+	if m.blocks[1].done {
+		t.Fatal("second card should still be open")
+	}
+	m.ToolDone("read", "second", "id-b")
+	if !m.blocks[1].done || m.blocks[1].out != "second" {
+		t.Fatalf("second card = done=%v out=%q", m.blocks[1].done, m.blocks[1].out)
+	}
+}
+
 func TestToolDoneNameMismatchClosesLatest(t *testing.T) {
 	m := NewModel()
 	m.SetWidth(80)
-	m.ToolStart("bash", `{"command":"ls"}`)
-	m.ToolDone("read", "ok")
+	m.ToolStart("bash", `{"command":"ls"}`, "")
+	m.ToolDone("read", "ok", "")
 	if len(m.blocks) != 1 || !m.blocks[0].done {
 		t.Fatal("name mismatch should still close the open ToolStart")
 	}
@@ -358,7 +379,7 @@ func TestToolDoneNameMismatchClosesLatest(t *testing.T) {
 func TestArgSummaryTruncatesDisplayWidth(t *testing.T) {
 	m := NewModel()
 	m.SetWidth(24)
-	m.ToolStart("read", `{"path":"`+strings.Repeat("世界", 30)+`"}`)
+	m.ToolStart("read", `{"path":"`+strings.Repeat("世界", 30)+`"}`, "")
 	w := 0
 	for _, s := range m.Rows()[0].Segs {
 		w += displayWidth(s.Text)

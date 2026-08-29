@@ -63,28 +63,37 @@ func New(c Completer, cfg config.RouterConfig) *Router {
 }
 
 // Select asks Arch-Router which route fits userText and returns
-// (routeName, chatModel). On failure it returns ("qwen", qwen model).
-func (r *Router) Select(ctx context.Context, userText string) (route, model string, err error) {
+// (routeName, chatModel, raw). mode is "plan" or "build". On ChatOnce
+// failure or an unparseable reply it returns ("qwen", qwen model).
+// Explicit route "other" returns model "" so the caller keeps the current model.
+func (r *Router) Select(ctx context.Context, userText, mode string) (route, model, raw string, err error) {
 	fallback := r.fallback()
 	if strings.TrimSpace(userText) == "" {
-		return fallback.route, fallback.model, nil
+		return fallback.route, fallback.model, "", nil
 	}
-	prompt, err := FormatPrompt(r.cfg.Routes, userText)
+	prompt, err := FormatPrompt(r.cfg.Routes, userText, mode)
 	if err != nil {
-		return fallback.route, fallback.model, err
+		return fallback.route, fallback.model, "", err
 	}
 	content, err := r.completer.ChatOnce(ctx, r.cfg.Model, []llm.Message{
 		{Role: llm.RoleUser, Content: prompt},
 	}, 32)
 	if err != nil {
-		return fallback.route, fallback.model, err
+		return fallback.route, fallback.model, "", err
 	}
+	raw = strings.TrimSpace(content)
 	route = ParseRoute(content, r.cfg.Routes)
+	if route == "" {
+		return fallback.route, fallback.model, raw, nil
+	}
+	if route == "other" {
+		return "other", "", raw, nil
+	}
 	target, ok := r.cfg.Routes[route]
 	if !ok || target.Model == "" {
-		return fallback.route, fallback.model, nil
+		return fallback.route, fallback.model, raw, nil
 	}
-	return route, target.Model, nil
+	return route, target.Model, raw, nil
 }
 
 type named struct{ route, model string }
@@ -100,7 +109,10 @@ func (r *Router) fallback() named {
 }
 
 // FormatPrompt builds the Arch-Router user message.
-func FormatPrompt(routes map[string]config.RouteTarget, userText string) (string, error) {
+func FormatPrompt(routes map[string]config.RouteTarget, userText, mode string) (string, error) {
+	if strings.EqualFold(strings.TrimSpace(mode), "plan") {
+		userText = "The user is in plan mode (investigate and propose a plan; do not implement).\n\n" + userText
+	}
 	type routeJSON struct {
 		Name        string `json:"name"`
 		Description string `json:"description"`
@@ -154,5 +166,5 @@ func ParseRoute(content string, routes map[string]config.RouteTarget) string {
 			return name
 		}
 	}
-	return "other"
+	return ""
 }

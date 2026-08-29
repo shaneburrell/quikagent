@@ -17,6 +17,8 @@ import (
 )
 
 const maxSteps = 50
+const maxPlanQuestions = 2
+const maxParallelTools = 8
 
 // compactKeepRecent is how many trailing messages to keep when compacting.
 const compactKeepRecent = 12
@@ -39,7 +41,7 @@ type Summarizer interface {
 
 // ModelRouter selects a chat model for a user turn (Arch-Router).
 type ModelRouter interface {
-	Select(ctx context.Context, userText string) (route, model string, err error)
+	Select(ctx context.Context, userText, mode string) (route, model, raw string, err error)
 }
 
 // AllowFunc decides whether a tool call may run. Return a non-nil error
@@ -67,6 +69,7 @@ type Agent struct {
 	todos         []TodoItem
 	onCompact     func([]llm.Message)
 	stepLimit     int
+	planQuestions int
 	trace         TraceFunc
 	traceFrontend string
 	traceTurn     string
@@ -356,6 +359,7 @@ func (a *Agent) Run(ctx context.Context, userText string, ev chan<- Event) {
 	turnID := newTurnID()
 	a.mu.Lock()
 	a.traceTurn = turnID
+	a.planQuestions = 0
 	mode := a.mode
 	model := a.opts.Model
 	a.mu.Unlock()
@@ -399,7 +403,7 @@ func (a *Agent) Run(ctx context.Context, userText string, ev chan<- Event) {
 		a.mu.RLock()
 		r := a.router
 		a.mu.RUnlock()
-		route, model, err := r.Select(ctx, userText)
+		route, model, raw, err := r.Select(ctx, userText, a.Mode().String())
 		if model != "" {
 			a.setModel(model, false)
 		}
@@ -415,6 +419,8 @@ func (a *Agent) Run(ctx context.Context, userText string, ev chan<- Event) {
 		if err != nil {
 			routeEv.Text = err.Error()
 			routeRec.Err = clip(err.Error(), 200)
+		} else if raw != "" {
+			routeRec.Err = clip(raw, 80)
 		}
 		ev <- routeEv
 		a.emitTrace(routeRec)
@@ -484,24 +490,75 @@ func (a *Agent) Run(ctx context.Context, userText string, ev chan<- Event) {
 			return
 		}
 
-		for _, tc := range assistant.ToolCalls {
-			if ctx.Err() != nil {
-				turnErr = ctx.Err()
-				ev <- Event{Type: EventError, Err: ctx.Err()}
-				return
-			}
-			ev <- Event{Type: EventToolStart, Name: tc.Name, Args: tc.Arguments}
-			output := a.runTool(ctx, tc, ev, steps)
-			ev <- Event{Type: EventToolDone, Name: tc.Name, Output: output}
-			a.mu.Lock()
-			a.messages = append(a.messages, llm.Message{
-				Role: llm.RoleTool, ToolCallID: tc.ID, Name: tc.Name, Content: output,
-			})
-			a.mu.Unlock()
+		if ctx.Err() != nil {
+			turnErr = ctx.Err()
+			ev <- Event{Type: EventError, Err: ctx.Err()}
+			return
+		}
+		a.runToolBatch(ctx, assistant.ToolCalls, ev, steps)
+		if ctx.Err() != nil {
+			turnErr = ctx.Err()
+			ev <- Event{Type: EventError, Err: ctx.Err()}
+			return
 		}
 	}
 	turnErr = fmt.Errorf("step-limit")
 	ev <- Event{Type: EventError, Err: fmt.Errorf("stopped after %d tool steps without a final answer", limit)}
+}
+
+func (a *Agent) runToolBatch(ctx context.Context, calls []llm.ToolCall, ev chan<- Event, step int) {
+	for _, tc := range calls {
+		ev <- Event{Type: EventToolStart, Name: tc.Name, Args: tc.Arguments, ToolCallID: tc.ID}
+	}
+	results := make([]string, len(calls))
+	if parallelSafe(a.tools, calls) {
+		var wg sync.WaitGroup
+		sem := make(chan struct{}, maxParallelTools)
+		for i, tc := range calls {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				select {
+				case sem <- struct{}{}:
+					defer func() { <-sem }()
+				case <-ctx.Done():
+					results[i] = "Error: " + ctx.Err().Error()
+					return
+				}
+				results[i] = a.runTool(ctx, tc, ev, step)
+			}()
+		}
+		wg.Wait()
+	} else {
+		for i, tc := range calls {
+			if ctx.Err() != nil {
+				results[i] = "Error: " + ctx.Err().Error()
+				continue
+			}
+			results[i] = a.runTool(ctx, tc, ev, step)
+		}
+	}
+	for i, tc := range calls {
+		a.mu.Lock()
+		a.messages = append(a.messages, llm.Message{
+			Role: llm.RoleTool, ToolCallID: tc.ID, Name: tc.Name, Content: results[i],
+		})
+		a.mu.Unlock()
+		ev <- Event{Type: EventToolDone, Name: tc.Name, Output: results[i], ToolCallID: tc.ID}
+	}
+}
+
+func parallelSafe(reg *tools.Registry, calls []llm.ToolCall) bool {
+	if len(calls) < 2 || reg == nil {
+		return false
+	}
+	for _, tc := range calls {
+		tool, ok := reg.Get(tc.Name)
+		if !ok || !tool.ReadOnly() || tc.Name == "question" {
+			return false
+		}
+	}
+	return true
 }
 
 func emitStatus(ev chan<- Event, name string) {
@@ -583,6 +640,17 @@ func (a *Agent) runTool(ctx context.Context, tc llm.ToolCall, ev chan<- Event, s
 		rec.Outcome = "denied_plan"
 		rec.Err = "plan mode"
 		return fmt.Sprintf("Error: tool %q is not available in plan mode", tc.Name)
+	}
+	if a.Mode() == Plan && tc.Name == "question" {
+		a.mu.Lock()
+		if a.planQuestions >= maxPlanQuestions {
+			a.mu.Unlock()
+			rec.Outcome = "denied_plan"
+			rec.Err = "question limit"
+			return "Error: plan mode allows at most 2 questions; write the plan and stop"
+		}
+		a.planQuestions++
+		a.mu.Unlock()
 	}
 	if a.allowTool != nil {
 		if err := a.allowTool(ctx, tc.Name, tc.Arguments); err != nil {
