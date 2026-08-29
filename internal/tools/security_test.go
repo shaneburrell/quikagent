@@ -22,6 +22,29 @@ func TestResolveRejectsSymlinkEscape(t *testing.T) {
 	}
 }
 
+func TestGrepRejectsSymlinkEscape(t *testing.T) {
+	root := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "secret.txt")
+	if err := os.WriteFile(outside, []byte("LEAKED_SECRET_12345"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "link.txt")); err != nil {
+		t.Fatal(err)
+	}
+	r := New(root)
+	tool, ok := r.Get("grep")
+	if !ok {
+		t.Fatal("missing grep")
+	}
+	res, err := tool.Run(t.Context(), []byte(`{"pattern":"LEAKED"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(res, "LEAKED_SECRET") {
+		t.Fatalf("grep leaked symlink target: %q", res)
+	}
+}
+
 func TestGlobRejectsDotDotEscape(t *testing.T) {
 	root := t.TempDir()
 	r := New(root)

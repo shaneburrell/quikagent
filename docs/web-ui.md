@@ -66,10 +66,9 @@ prompt. There is no mention picker.
 Closing the tab does **not** cancel an in-flight turn. EventSource
 reconnects and shows a “connection lost” banner.
 
-`/api/state` restores messages, mode, busy, and todos. It does **not**
-include a pending approval or question. If you refresh while the agent
-is waiting on Allow/Deny, the card is gone and the turn stays blocked
-until you Cancel (or the turn ends).
+`/api/state` restores messages, mode, busy, todos, and a pending
+approval or question. Refresh or SSE reconnect rebuilds the Allow/Deny
+or question card when one is in flight.
 
 Keep the tab open for approvals, or pre-allow tools in
 `permissions.allow` ([config.md](config.md)).
@@ -88,7 +87,7 @@ Unauthenticated. Same origin as the page. No TLS.
 | POST | `/approve` | `{ "id", "allow", "always" }` |
 | POST | `/answer` | `{ "id", "answer" }` |
 | GET | `/sessions` | List saved sessions |
-| GET | `/api/state` | Snapshot for reconnect |
+| GET | `/api/state` | Snapshot for reconnect (includes pending approval/question) |
 | POST | `/session/resume` | `{ "id" }` |
 | POST | `/session/new` | Empty session |
 | GET | `/health` | `ok` (not readiness) |

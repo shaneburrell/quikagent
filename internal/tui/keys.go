@@ -116,8 +116,14 @@ func parseRemain(chunk []byte) (keys []Key, remain []byte) {
 				keys = append(keys, Key{Kind: KeyNamed, Name: KeyEsc})
 				i++
 			default:
-				// Bare ESC followed by another byte: emit Esc and let the
-				// next iteration handle the following byte (Alt+key).
+				// Alt/Meta: ESC + printable. Treat as the rune only so
+				// handleKeys does not clear the input on a phantom Esc.
+				r, size := utf8.DecodeRune(rest)
+				if r != utf8.RuneError && !unicode.IsControl(r) {
+					keys = append(keys, Key{Kind: KeyRune, Rune: r})
+					i += 1 + size
+					continue
+				}
 				keys = append(keys, Key{Kind: KeyNamed, Name: KeyEsc})
 				i++
 			}
@@ -261,6 +267,8 @@ func parseCSI(rest []byte) (event *Key, consumed int) {
 			return keyName(KeyF2), consumed
 		case "12;2":
 			return keyName(KeyShiftF2), consumed
+		case "13;2", "27;2;13":
+			return keyName(KeyShiftEnter), consumed
 		}
 		return nil, consumed
 	case 'Q':

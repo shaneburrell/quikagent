@@ -564,6 +564,17 @@ func (s *Server) handleState(w http.ResponseWriter, _ *http.Request) {
 	if s.sess != nil {
 		id = s.sess.ID
 	}
+	var pending any
+	if s.pending != nil {
+		pending = map[string]string{"id": s.pending.ID, "name": s.pending.Name, "args": s.pending.Args}
+	}
+	var question any
+	if s.asking != nil {
+		question = map[string]any{
+			"id": s.asking.ID, "header": s.asking.Q.Header,
+			"question": s.asking.Q.Prompt, "options": s.asking.Q.Options,
+		}
+	}
 	s.mu.Unlock()
 	mode := "build"
 	if s.agent != nil && s.agent.Mode() == agent.Plan {
@@ -594,6 +605,7 @@ func (s *Server) handleState(w http.ResponseWriter, _ *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"mode": mode, "busy": busy, "session_id": id,
 		"route": route, "model": model, "todos": todos, "messages": msgs,
+		"pending_approval": pending, "pending_question": question,
 	})
 }
 
@@ -731,6 +743,8 @@ function setBusy(on) {
   sendBtn.disabled = on;
   sendBtn.classList.toggle('busy', on);
   sendBtn.textContent = on ? 'Working…' : 'Send';
+  const p = document.getElementById('prompt');
+  if (p) { p.disabled = on; p.placeholder = on ? 'Turn in progress…' : 'Ask quikagent…'; }
 }
 function showBanner(t) { banner.textContent = t || ''; banner.classList.toggle('show', !!t); }
 function append(cls, text) {
@@ -909,8 +923,24 @@ es.onmessage = (ev) => {
   try { handleEvent(JSON.parse(ev.data)); }
   catch (err) { append('err', '✗ bad event'); }
 };
+function applyPending(st) {
+  document.querySelectorAll('.approve-card,.question-card').forEach(el => el.remove());
+  if (st.pending_approval) approveCard(st.pending_approval);
+  if (st.pending_question) questionCard(st.pending_question);
+}
+function hydrateState() {
+  return fetch('/api/state').then(r => r.json()).then(st => {
+    if (st.mode) { mode = st.mode; document.getElementById('mode').textContent = 'mode: ' + mode; }
+    setBusy(!!st.busy);
+    const route = st.route || '{{ROUTE}}';
+    document.getElementById('meta').textContent = 'session ' + (st.session_id || '{{SESSION}}') + (route ? ' · route ' + route : '');
+    renderTodos(st.todos || []);
+    applyPending(st);
+    return st;
+  });
+}
 es.onerror = () => showBanner('connection lost — retrying…');
-es.onopen = () => showBanner('');
+es.onopen = () => { showBanner(''); hydrateState().catch(() => {}); };
 document.getElementById('f').onsubmit = async (ev) => {
   ev.preventDefault();
   const prompt = document.getElementById('prompt').value.trim();
@@ -933,7 +963,7 @@ document.getElementById('mode').onclick = async () => {
   if (!res.ok) {
     mode = prev;
     document.getElementById('mode').textContent = 'mode: ' + prev;
-    append('err', res.status === 409 ? 'mode locked during turn' : '✗ mode failed');
+    append('err', '✗ mode failed');
     return;
   }
   mode = next;
@@ -953,6 +983,7 @@ fetch('/api/state').then(r => r.json()).then(st => {
     } else if (m.content) append('', m.content);
   });
   renderTodos(st.todos || []);
+  applyPending(st);
 }).catch(() => {});
 async function newSession() {
   const res = await postJSON('/session/new', {});

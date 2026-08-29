@@ -511,7 +511,7 @@ func TestInputBlockKeepsTrailingSpace(t *testing.T) {
 	if !strings.Contains(rowTexts(rows)[0], "hello ") {
 		t.Fatalf("missing trailing space: %q", rowTexts(rows)[0])
 	}
-	if cx != 8 { // "❯ " (2) + "hello " (6)
+	if cx != 8 { // "› " (2) + "hello " (6)
 		t.Fatalf("cx=%d want 8", cx)
 	}
 }
@@ -549,6 +549,115 @@ func TestEndTurnCancelsPendingQuestion(t *testing.T) {
 	joined := strings.Join(rowTexts(a.model.Rows()), "\n")
 	if !strings.Contains(joined, "skipped") && !strings.Contains(joined, "cancel") {
 		t.Fatalf("want cancel/skip note: %q", joined)
+	}
+}
+
+func TestDraftStaysOutOfTranscript(t *testing.T) {
+	a := &App{width: 80, height: 24, input: NewInput(), model: NewModel(), follow: true}
+	a.input.SetText("hi")
+	_, _, histH, inputRows, promptRows, _, _, _ := a.composeLayout()
+	if a.model.Len() != 0 {
+		t.Fatal("draft must not commit to the transcript")
+	}
+	if histH+len(promptRows)+1+len(inputRows)+1 > a.height {
+		t.Fatalf("frame overflow hist=%d prompt=%d input=%d height=%d", histH, len(promptRows), len(inputRows), a.height)
+	}
+	joined := strings.Join(rowTexts(inputRows), "\n")
+	if !strings.Contains(joined, "hi") || !strings.Contains(joined, "›") {
+		t.Fatalf("live input = %q", joined)
+	}
+	if strings.Contains(joined, "❯") {
+		t.Fatalf("live input used history prefix: %q", joined)
+	}
+}
+
+func TestComposeBandShrinksInputNotHistOnTinyScreen(t *testing.T) {
+	a := &App{width: 40, height: 5, input: NewInput(), model: NewModel()}
+	a.input.SetText("one\ntwo\nthree\nfour\nfive")
+	_, _, histH, inputRows, promptRows, _, _, _ := a.composeLayout()
+	if histH < 1 {
+		t.Fatal("histH must stay at least 1")
+	}
+	if histH+len(promptRows)+1+len(inputRows)+1 > a.height {
+		t.Fatalf("overflow hist=%d input=%d prompt=%d", histH, len(inputRows), len(promptRows))
+	}
+}
+
+func TestSidebarIntentSurvivesNarrowWidth(t *testing.T) {
+	a := &App{width: 119, height: 24, sidebarOn: true, input: NewInput(), model: NewModel()}
+	sideW, _ := a.paneWidths()
+	if sideW == 0 {
+		t.Fatal("expected sidebar at raw 120 cols")
+	}
+	a.width = 80
+	sideW, _ = a.paneWidths()
+	if sideW != 0 {
+		t.Fatal("expected hidden draw when narrow")
+	}
+	if !a.sidebarOn {
+		t.Fatal("narrow layout must not clear sidebar intent")
+	}
+	a.width = 119
+	sideW, _ = a.paneWidths()
+	if sideW == 0 {
+		t.Fatal("expected sidebar to return when wide again")
+	}
+}
+
+func TestToggleSidebarKeepsIntentWhenNarrow(t *testing.T) {
+	a := &App{width: 80, height: 24, sidebarOn: false, model: NewModel()}
+	a.toggleSidebar()
+	if !a.sidebarOn {
+		t.Fatal("ctrl+b should set intent even when too narrow")
+	}
+}
+
+func TestShiftEnterWhileBusyDoesNotGrowInput(t *testing.T) {
+	a := &App{busy: true, input: NewInput(), model: NewModel(), agent: testAgent("qwen")}
+	a.input.SetText("do it")
+	a.handleKeys([]Key{{Kind: KeyNamed, Name: KeyShiftEnter}})
+	if strings.Contains(a.input.Text(), "\n") {
+		t.Fatalf("shift+enter while busy inserted newline: %q", a.input.Text())
+	}
+}
+
+func TestAltRuneDoesNotClearInput(t *testing.T) {
+	a := &App{input: NewInput()}
+	a.input.SetText("hello")
+	a.handleKeys(Parse([]byte{0x1b, 'x'}))
+	if a.input.Text() != "hellox" {
+		t.Fatalf("alt+x cleared or dropped input: %q", a.input.Text())
+	}
+}
+
+func TestTypingResetsHistoryIndex(t *testing.T) {
+	a := &App{input: NewInput(), history: []string{"old"}, historyIdx: 0}
+	a.handleKeys([]Key{{Kind: KeyRune, Rune: 'x'}})
+	if a.historyIdx != -1 {
+		t.Fatalf("historyIdx = %d", a.historyIdx)
+	}
+	if a.input.Text() != "x" {
+		t.Fatalf("input = %q", a.input.Text())
+	}
+}
+
+func TestOverlayKeysWinOverApproval(t *testing.T) {
+	ch := make(chan error, 1)
+	a := &App{
+		model:   NewModel(),
+		overlay: "palette",
+		palette: newPalette(),
+		pending: &approveRequest{name: "write", args: `{"path":"x"}`, reply: ch},
+		done:    make(chan struct{}),
+	}
+	a.handleKeys([]Key{{Kind: KeyRune, Rune: 'y'}})
+	if a.pending == nil {
+		t.Fatal("overlay typing must not approve")
+	}
+	select {
+	case err := <-ch:
+		t.Fatalf("unexpected approval result: %v", err)
+	default:
 	}
 }
 

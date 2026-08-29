@@ -36,8 +36,8 @@ type SidebarData struct {
 	ScrollHint                                string
 }
 
-// SideWidth returns the sidebar column width for a given terminal width.
-// Returns 0 when the terminal is too narrow for a two-pane layout.
+// SideWidth returns the sidebar column width for raw terminal columns
+// (tput cols). Returns 0 when the terminal is narrower than 100 cols.
 func SideWidth(termWidth int) int {
 	if termWidth < minMainForSide {
 		return 0

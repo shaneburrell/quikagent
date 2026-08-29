@@ -50,6 +50,12 @@ func TestSideWidth(t *testing.T) {
 	if SideWidth(80) != 0 {
 		t.Fatal("expected 0 for narrow")
 	}
+	if SideWidth(99) != 0 {
+		t.Fatal("expected 0 for 99 raw cols")
+	}
+	if w := SideWidth(100); w < minSideW || w > maxSideW {
+		t.Fatalf("side at 100 cols = %d", w)
+	}
 	if w := SideWidth(120); w < minSideW || w > maxSideW {
 		t.Fatalf("side=%d", w)
 	}
