@@ -222,10 +222,10 @@ func (a *App) ReplayHistory(msgs []llm.Message) {
 				a.model.Text(msg.Content)
 			}
 			for _, tc := range msg.ToolCalls {
-				a.model.ToolStart(tc.Name, tc.Arguments)
+				a.model.ToolStart(tc.Name, tc.Arguments, tc.ID)
 			}
 		case llm.RoleTool:
-			a.model.ToolDone(msg.Name, msg.Content)
+			a.model.ToolDone(msg.Name, msg.Content, msg.ToolCallID)
 		}
 	}
 	// Replay is historical: no tool should keep spinning, and thinking
@@ -1306,6 +1306,7 @@ func (a *App) handleEvent(e agent.Event) {
 		}
 		a.phase = name
 		a.model.Status(name)
+		a.syncSession()
 		a.markStreamUpdate()
 	case agent.EventText:
 		a.phase = ""
@@ -1317,10 +1318,11 @@ func (a *App) handleEvent(e agent.Event) {
 		a.markStreamUpdate()
 	case agent.EventToolStart:
 		a.phase = ""
-		a.model.ToolStart(e.Name, e.Args)
+		a.model.ToolStart(e.Name, e.Args, e.ToolCallID)
 		a.markStreamUpdate()
 	case agent.EventToolDone:
-		a.model.ToolDone(e.Name, e.Output)
+		a.model.ToolDone(e.Name, e.Output, e.ToolCallID)
+		a.syncSession()
 		a.markStreamUpdate()
 	case agent.EventTodos:
 		a.todos = e.Todos
@@ -1464,6 +1466,9 @@ func (a *App) resetHistoryTo(msgs []llm.Message) {
 // agent compacted history mid-turn, the whole session is rewritten so the
 // JSONL matches the compacted conversation.
 func (a *App) syncSession() {
+	if a.agent == nil || a.sess == nil {
+		return
+	}
 	msgs := a.agent.Messages()
 	if a.compacted.Swap(false) {
 		if err := a.sess.Replace(msgs); err != nil {

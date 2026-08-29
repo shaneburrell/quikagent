@@ -29,6 +29,7 @@ type block struct {
 	kind      blockKind
 	text      string // user / assistant / thinking / error
 	name      string // tool
+	id        string // tool_call_id
 	args      string // tool arguments (raw JSON)
 	out       string // tool output
 	done      bool
@@ -77,10 +78,10 @@ func (m *Model) Thinking(delta string) {
 }
 
 // ToolStart records a tool that is about to run.
-func (m *Model) ToolStart(name, args string) {
+func (m *Model) ToolStart(name, args, id string) {
 	m.clearWait()
 	m.collapseFinishedThinking()
-	m.blocks = append(m.blocks, block{kind: blockTool, name: name, args: args})
+	m.blocks = append(m.blocks, block{kind: blockTool, name: name, args: args, id: id})
 }
 
 // Status upserts a tool-like wait card for a pre-stream phase (waiting, routing, compacting).
@@ -109,21 +110,30 @@ func (m *Model) clearWait() {
 // ToolDone finishes the most recent unfinished tool block. If no open
 // tool matches name, the most recent unmatched ToolStart is closed
 // anyway so a spinner cannot stick after a name mismatch.
-func (m *Model) ToolDone(name, out string) {
+func (m *Model) ToolDone(name, out, id string) {
 	finish := func(b *block) {
 		b.out = out
 		b.done = true
 		b.failed = strings.HasPrefix(out, "Error:")
 		b.collapsed = !b.failed
 	}
-	for i := len(m.blocks) - 1; i >= 0; i-- {
+	if id != "" {
+		for i := range m.blocks {
+			b := &m.blocks[i]
+			if b.kind == blockTool && !b.done && b.id == id {
+				finish(b)
+				return
+			}
+		}
+	}
+	for i := range m.blocks {
 		b := &m.blocks[i]
 		if b.kind == blockTool && !b.done && b.name == name {
 			finish(b)
 			return
 		}
 	}
-	for i := len(m.blocks) - 1; i >= 0; i-- {
+	for i := range m.blocks {
 		b := &m.blocks[i]
 		if b.kind == blockTool && !b.done {
 			finish(b)
@@ -327,7 +337,7 @@ func argSummary(args string) string {
 	if err := json.Unmarshal([]byte(args), &m); err != nil {
 		return ""
 	}
-	for _, k := range []string{"command", "file_path", "path", "pattern", "query", "description"} {
+	for _, k := range []string{"command", "file_path", "path", "pattern", "query", "description", "name"} {
 		v, ok := m[k]
 		if !ok {
 			continue

@@ -25,7 +25,9 @@ The `skill` tool loads a named `SKILL.md`:
 3. `~/.quikagent/skills/<name>/SKILL.md`
 4. `~/.quikagent/skills/<name>.md`
 
-Names cannot contain path separators.
+Names cannot contain path separators. The tool description lists
+available names (or `none`). A miss returns that catalog so the model
+does not invent names. Project skills win on name collision.
 
 ## Hooks
 

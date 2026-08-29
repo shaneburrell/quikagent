@@ -22,15 +22,16 @@ const (
 
 // Event is one item in the agent's output stream.
 type Event struct {
-	Type   EventType
-	Text   string     // EventText, EventThinking, EventStatus (label)
-	Output string     // EventToolDone
-	Name   string     // EventToolStart, EventToolDone, EventRoute (route name), EventStatus (phase)
-	Args   string     // EventToolStart (raw JSON)
-	Model  string     // EventRoute (selected chat model)
-	Usage  *llm.Usage // EventTurnDone
-	Err    error      // EventError
-	Todos  []TodoItem // EventTodos
+	Type       EventType
+	Text       string     // EventText, EventThinking, EventStatus (label)
+	Output     string     // EventToolDone
+	Name       string     // EventToolStart, EventToolDone, EventRoute (route name), EventStatus (phase)
+	Args       string     // EventToolStart (raw JSON)
+	Model      string     // EventRoute (selected chat model)
+	Usage      *llm.Usage // EventTurnDone
+	Err        error      // EventError
+	Todos      []TodoItem // EventTodos
+	ToolCallID string     // EventToolStart, EventToolDone
 }
 
 // Usage is cumulative token accounting for a turn.

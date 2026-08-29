@@ -358,6 +358,30 @@ func runPrint(ag *agent.Agent, sess *session.Session, prompt string, autoYes boo
 	ev := make(chan agent.Event)
 	go ag.Run(ctx, prompt, ev)
 
+	flush := func() error {
+		if compacted {
+			compacted = false
+			if err := sess.Replace(ag.Messages()); err != nil {
+				return err
+			}
+			base = len(sess.Messages())
+			sess.EnsureTitle()
+			return nil
+		}
+		msgs := ag.Messages()
+		if len(msgs) <= base {
+			return nil
+		}
+		for _, m := range msgs[base:] {
+			if err := sess.Append(m); err != nil {
+				return err
+			}
+		}
+		base = len(sess.Messages())
+		sess.EnsureTitle()
+		return nil
+	}
+
 	var turnErr error
 	for e := range ev {
 		switch e.Type {
@@ -375,6 +399,9 @@ func runPrint(ag *agent.Agent, sess *session.Session, prompt string, autoYes boo
 			if label != "" {
 				fmt.Fprintln(os.Stderr, label+"…")
 			}
+			if err := flush(); err != nil {
+				return err
+			}
 		case agent.EventThinking:
 			fmt.Fprint(os.Stderr, e.Text)
 		case agent.EventText:
@@ -384,6 +411,9 @@ func runPrint(ag *agent.Agent, sess *session.Session, prompt string, autoYes boo
 		case agent.EventToolDone:
 			out := text.ClipRunes(e.Output, 400)
 			fmt.Fprintf(os.Stderr, "  %s\n", strings.ReplaceAll(out, "\n", " ⏎ "))
+			if err := flush(); err != nil {
+				return err
+			}
 		case agent.EventError:
 			turnErr = e.Err
 		case agent.EventTurnDone:
@@ -391,27 +421,12 @@ func runPrint(ag *agent.Agent, sess *session.Session, prompt string, autoYes boo
 		}
 	}
 
-	if compacted {
-		// History was rewritten mid-turn; the append-from-base offsets no
-		// longer line up, so persist the whole compacted conversation.
-		if err := sess.Replace(ag.Messages()); err != nil {
-			if turnErr != nil {
-				return fmt.Errorf("%w (also session save: %w)", turnErr, err)
-			}
-			return fmt.Errorf("session save: %w", err)
+	if err := flush(); err != nil {
+		if turnErr != nil {
+			return fmt.Errorf("%w (also session save: %w)", turnErr, err)
 		}
-		sess.EnsureTitle()
-		return turnErr
+		return fmt.Errorf("session save: %w", err)
 	}
-	for _, m := range ag.Messages()[base:] {
-		if err := sess.Append(m); err != nil {
-			if turnErr != nil {
-				return fmt.Errorf("%w (also session save: %w)", turnErr, err)
-			}
-			return fmt.Errorf("session save: %w", err)
-		}
-	}
-	sess.EnsureTitle()
 	return turnErr
 }
 
