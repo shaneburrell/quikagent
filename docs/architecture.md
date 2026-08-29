@@ -10,7 +10,7 @@ internal/llm         OpenAI-compatible SSE + ChatOnce + ListModels
 internal/router      Arch-Router selection
 internal/tools       registry + sandbox + MCP
 internal/agent       model→tool loop, events
-internal/session     JSONL in ~/.quikagent/sessions
+internal/session     JSONL + .trace.jsonl in ~/.quikagent/sessions
 internal/tui         TUI + sidebar + setup/config/palette/models
 internal/server      HTTP/SSE web frontend
 internal/hooks       pre-tool / post-tool scripts

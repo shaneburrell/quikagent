@@ -19,7 +19,7 @@ A trailing prompt (when not starting with `-`) is the same as `-p`.
 | `--web ADDR` | Web UI. Host defaults to `127.0.0.1` (`8080` or `:8080`) |
 | `--web-listen-all` | Allow `--web` to bind a non-loopback address |
 | `--desktop` | Bind a free loopback port and open the system browser |
-| `--export <id>` | Print a session as markdown and exit |
+| `--export <id>` | Print a session (and its trace) as markdown and exit |
 | `--continue --export <id>` | Export the latest session (`<id>` is ignored) |
 | `-version` | Print version and exit |
 
@@ -30,7 +30,22 @@ open, not a native webview.
 `--web-listen-all`. See [hosting.md](hosting.md). Web UI details:
 [web-ui.md](web-ui.md).
 
-Sessions are JSONL under `~/.quikagent/sessions`.
+Sessions are JSONL under `~/.quikagent/sessions` (`<id>.jsonl`). Each
+session also gets an append-only sidecar `<id>.trace.jsonl` (mode `0600`)
+with turn timing, route, compact, per-step tokens, and tool outcomes.
+Traces are local only and are **not** sent back to the model. `--export`
+appends a Trace section when a sidecar exists.
+
+```sh
+# tool outcomes
+jq -s 'map(select(.type=="tool")) | group_by(.outcome) | map({outcome: .[0].outcome, n: length})' ~/.quikagent/sessions/*.trace.jsonl
+
+# average steps per finished turn
+jq -s 'map(select(.type=="turn_end")) | {n: length, avg_steps: (map(.steps) | add / length)}' ~/.quikagent/sessions/*.trace.jsonl
+
+# compact frequency
+jq -s 'map(select(.type=="compact")) | length' ~/.quikagent/sessions/*.trace.jsonl
+```
 
 ## TUI keys
 

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"quikagent/internal/llm"
+	"quikagent/internal/session"
 	"quikagent/internal/tools"
 )
 
@@ -876,6 +877,72 @@ func (f *fakeSummarizer) Summarize(ctx context.Context, text string) (string, er
 		return "", ctx.Err()
 	}
 	return f.out, f.err
+}
+
+func TestTraceTurnWithTool(t *testing.T) {
+	dir := t.TempDir()
+	if err := writeFile(dir, "notes.txt", "hello\n"); err != nil {
+		t.Fatal(err)
+	}
+	fake := &fakeLLM{scripts: []script{
+		{toolCalls: []llm.ToolCall{{ID: "c1", Name: "read", Arguments: `{"path":"notes.txt"}`}}},
+		{text: "done"},
+	}}
+	a := newTestAgent(dir, fake)
+	var recs []session.TraceRecord
+	a.SetTrace(func(r session.TraceRecord) { recs = append(recs, r) })
+	a.SetTraceFrontend("print")
+	_ = collect(t, run(a, "read notes"))
+
+	types := make([]string, 0, len(recs))
+	var tool session.TraceRecord
+	for _, r := range recs {
+		types = append(types, r.Type)
+		if r.Type == "tool" {
+			tool = r
+		}
+	}
+	joined := strings.Join(types, ",")
+	if !strings.Contains(joined, "turn_start") || !strings.Contains(joined, "tool") || !strings.Contains(joined, "turn_end") {
+		t.Fatalf("types = %s", joined)
+	}
+	if recs[0].Frontend != "print" || recs[0].Mode != "build" {
+		t.Fatalf("start = %+v", recs[0])
+	}
+	if tool.Name != "read" || tool.ToolCallID != "c1" || tool.Outcome != "ok" || tool.OK == nil || !*tool.OK {
+		t.Fatalf("tool = %+v", tool)
+	}
+	end := recs[len(recs)-1]
+	if end.Type != "turn_end" || end.OK == nil || !*end.OK || end.Steps < 1 {
+		t.Fatalf("end = %+v", end)
+	}
+}
+
+func TestTracePlanDeny(t *testing.T) {
+	fake := &fakeLLM{scripts: []script{
+		{toolCalls: []llm.ToolCall{{ID: "1", Name: "bash", Arguments: `{"command":"echo hi"}`}}},
+		{text: "blocked"},
+	}}
+	a := newTestAgent(t.TempDir(), fake)
+	a.SetMode(Plan)
+	var recs []session.TraceRecord
+	a.SetTrace(func(r session.TraceRecord) { recs = append(recs, r) })
+	_ = collect(t, run(a, "run echo"))
+	var tool session.TraceRecord
+	for _, r := range recs {
+		if r.Type == "tool" {
+			tool = r
+		}
+	}
+	if tool.Outcome != "denied_plan" || tool.OK == nil || *tool.OK {
+		t.Fatalf("tool = %+v", tool)
+	}
+}
+
+func TestTraceNilSinkIsNoop(t *testing.T) {
+	fake := &fakeLLM{scripts: []script{{text: "ok"}}}
+	a := newTestAgent(t.TempDir(), fake)
+	_ = collect(t, run(a, "hi"))
 }
 
 func run(a *Agent, text string) <-chan Event {

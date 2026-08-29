@@ -27,6 +27,8 @@ type AgentRunner interface {
 	SetAllowTool(fn agent.AllowFunc)
 	SetOnCompact(fn func([]llm.Message))
 	SetQuestionAsk(fn tools.AskFunc)
+	SetTrace(fn agent.TraceFunc)
+	SetTraceFrontend(name string)
 	Messages() []llm.Message
 	LoadHistory(messages []llm.Message)
 	ResetTodos()
@@ -88,6 +90,7 @@ func New(ag AgentRunner, sess *session.Session) *Server {
 	ag.SetAllowTool(s.allowTool)
 	ag.SetQuestionAsk(s.askQuestion)
 	ag.SetOnCompact(func([]llm.Message) { s.compacted.Store(true) })
+	bindSessionTrace(ag, sess, "web")
 	s.mux.HandleFunc("GET /", s.handleIndex)
 	s.mux.HandleFunc("GET /events", s.handleEvents)
 	s.mux.HandleFunc("POST /turn", s.handleTurn)
@@ -108,6 +111,14 @@ func New(ag AgentRunner, sess *session.Session) *Server {
 
 // SetPermissions installs config-driven allow/deny rules checked before
 // falling back to interactive approval.
+func bindSessionTrace(ag AgentRunner, sess *session.Session, frontend string) {
+	if ag == nil || sess == nil {
+		return
+	}
+	ag.SetTraceFrontend(frontend)
+	ag.SetTrace(func(r session.TraceRecord) { _ = sess.AppendTrace(r) })
+}
+
 func (s *Server) SetPermissions(allow, deny []string) {
 	s.mu.Lock()
 	s.permAllow = append([]string(nil), allow...)
@@ -406,6 +417,7 @@ func (s *Server) applySessionLocked(sess *session.Session) {
 		}
 		s.agent.LoadHistory(msgs)
 		s.agent.ResetTodos()
+		bindSessionTrace(s.agent, sess, "web")
 	}
 }
 

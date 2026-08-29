@@ -3,10 +3,12 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"quikagent/internal/hooks"
 	"quikagent/internal/llm"
 	"quikagent/internal/mention"
+	"quikagent/internal/session"
 	"quikagent/internal/text"
 	"quikagent/internal/tools"
 	"strings"
@@ -50,22 +52,25 @@ type TodoItem = tools.TodoItem
 // Agent owns the conversation and runs user turns. It is safe for one
 // concurrent Run; frontends serialize turns.
 type Agent struct {
-	llm         LLM
-	tools       *tools.Registry
-	opts        Options
-	mode        Mode
-	messages    []llm.Message
-	allowTool   AllowFunc
-	router      ModelRouter
-	routerOn    bool
-	modelPinned bool
-	lastRoute   string
-	planModel   string
-	summarizer  Summarizer
-	todos       []TodoItem
-	onCompact   func([]llm.Message)
-	stepLimit   int
-	mu          sync.RWMutex
+	llm           LLM
+	tools         *tools.Registry
+	opts          Options
+	mode          Mode
+	messages      []llm.Message
+	allowTool     AllowFunc
+	router        ModelRouter
+	routerOn      bool
+	modelPinned   bool
+	lastRoute     string
+	planModel     string
+	summarizer    Summarizer
+	todos         []TodoItem
+	onCompact     func([]llm.Message)
+	stepLimit     int
+	trace         TraceFunc
+	traceFrontend string
+	traceTurn     string
+	mu            sync.RWMutex
 }
 
 // New builds an Agent with an empty conversation.
@@ -287,6 +292,7 @@ func (a *Agent) CompactCtx(ctx context.Context) bool {
 	}
 	old := append([]llm.Message(nil), a.messages[:cut]...)
 	recent := append([]llm.Message(nil), a.messages[cut:]...)
+	before := len(a.messages)
 	summarizer := a.summarizer
 	a.mu.Unlock()
 
@@ -310,6 +316,7 @@ func (a *Agent) CompactCtx(ctx context.Context) bool {
 	if onCompact != nil {
 		onCompact(a.Messages())
 	}
+	a.emitTrace(session.TraceRecord{Type: "compact", Before: before, After: 1 + len(recent)})
 	return true
 }
 
@@ -346,6 +353,33 @@ func summarizeMessagesLLM(ctx context.Context, summarizer Summarizer, msgs []llm
 // is emitted, after which ev is closed.
 func (a *Agent) Run(ctx context.Context, userText string, ev chan<- Event) {
 	defer close(ev)
+	turnID := newTurnID()
+	a.mu.Lock()
+	a.traceTurn = turnID
+	mode := a.mode
+	model := a.opts.Model
+	a.mu.Unlock()
+	turnStart := time.Now()
+	var turnErr error
+	steps := 0
+	defer func() {
+		errStr := ""
+		if turnErr != nil {
+			if errors.Is(turnErr, context.Canceled) || errors.Is(turnErr, context.DeadlineExceeded) {
+				errStr = "cancel"
+			} else {
+				errStr = clip(turnErr.Error(), 200)
+			}
+		}
+		a.emitTrace(session.TraceRecord{
+			Type: "turn_end", Turn: turnID, MS: time.Since(turnStart).Milliseconds(),
+			Steps: steps, OK: session.BoolPtr(turnErr == nil), Err: errStr,
+		})
+	}()
+	a.emitTrace(session.TraceRecord{
+		Type: "turn_start", Turn: turnID, Mode: strings.ToLower(mode.String()), Model: model,
+	})
+
 	if a.opts.Workdir != "" {
 		if expanded, err := mention.Expand(ctx, a.opts.Workdir, userText); err == nil {
 			userText = expanded
@@ -377,10 +411,13 @@ func (a *Agent) Run(ctx context.Context, userText string, ev chan<- Event) {
 		curModel := a.opts.Model
 		a.mu.Unlock()
 		routeEv := Event{Type: EventRoute, Name: route, Model: curModel}
+		routeRec := session.TraceRecord{Type: "route", Route: route, Model: curModel}
 		if err != nil {
 			routeEv.Text = err.Error()
+			routeRec.Err = clip(err.Error(), 200)
 		}
 		ev <- routeEv
+		a.emitTrace(routeRec)
 	}
 
 	turnModel := a.Model()
@@ -409,16 +446,36 @@ func (a *Agent) Run(ctx context.Context, userText string, ev chan<- Event) {
 		maxTok := a.opts.MaxTokens
 		a.mu.RUnlock()
 		emitStatus(ev, "waiting")
+		beforeP, beforeC := usage.PromptTokens, usage.CompletionTokens
+		llmStart := time.Now()
 		ch, err := a.llm.Chat(ctx, wire, defs, maxTok)
 		if err != nil {
+			turnErr = err
 			ev <- Event{Type: EventError, Err: err}
 			return
 		}
 
 		assistant, ok := a.consume(ctx, ch, ev, usage)
 		if !ok {
-			return // consume already emitted EventError
+			if ctx.Err() != nil {
+				turnErr = ctx.Err()
+			} else {
+				turnErr = fmt.Errorf("llm")
+			}
+			return
 		}
+		steps++
+		nCalls := 0
+		if assistant != nil {
+			nCalls = len(assistant.ToolCalls)
+		}
+		a.emitTrace(session.TraceRecord{
+			Type: "llm", Step: steps, MS: time.Since(llmStart).Milliseconds(),
+			PromptTokens: usage.PromptTokens - beforeP,
+			ComplTokens:  usage.CompletionTokens - beforeC,
+			ToolCalls:    nCalls,
+			Model:        a.Model(),
+		})
 		a.mu.Lock()
 		a.messages = append(a.messages, *assistant)
 		a.mu.Unlock()
@@ -429,11 +486,12 @@ func (a *Agent) Run(ctx context.Context, userText string, ev chan<- Event) {
 
 		for _, tc := range assistant.ToolCalls {
 			if ctx.Err() != nil {
+				turnErr = ctx.Err()
 				ev <- Event{Type: EventError, Err: ctx.Err()}
 				return
 			}
 			ev <- Event{Type: EventToolStart, Name: tc.Name, Args: tc.Arguments}
-			output := a.runTool(ctx, tc, ev)
+			output := a.runTool(ctx, tc, ev, steps)
 			ev <- Event{Type: EventToolDone, Name: tc.Name, Output: output}
 			a.mu.Lock()
 			a.messages = append(a.messages, llm.Message{
@@ -442,6 +500,7 @@ func (a *Agent) Run(ctx context.Context, userText string, ev chan<- Event) {
 			a.mu.Unlock()
 		}
 	}
+	turnErr = fmt.Errorf("step-limit")
 	ev <- Event{Type: EventError, Err: fmt.Errorf("stopped after %d tool steps without a final answer", limit)}
 }
 
@@ -469,6 +528,7 @@ func (a *Agent) applyStepModel(ev chan<- Event, turnModel string, planEmitted *b
 			a.lastRoute = "plan"
 			a.mu.Unlock()
 			ev <- Event{Type: EventRoute, Name: "plan", Model: planModel}
+			a.emitTrace(session.TraceRecord{Type: "route", Route: "plan", Model: planModel})
 		}
 		return
 	}
@@ -505,33 +565,53 @@ func (a *Agent) consume(_ context.Context, ch <-chan llm.Event, ev chan<- Event,
 // runTool executes a single tool call and returns model-facing output.
 // Hard failures are reported as text so the model can react. Side-channel
 // events (e.g. EventTodos) are emitted on ev.
-func (a *Agent) runTool(ctx context.Context, tc llm.ToolCall, ev chan<- Event) string {
+func (a *Agent) runTool(ctx context.Context, tc llm.ToolCall, ev chan<- Event, step int) string {
+	start := time.Now()
+	rec := session.TraceRecord{Type: "tool", Name: tc.Name, ToolCallID: tc.ID, Step: step}
+	defer func() {
+		rec.MS = time.Since(start).Milliseconds()
+		rec.OK = session.BoolPtr(rec.Outcome == "ok")
+		a.emitTrace(rec)
+	}()
 	tool, ok := a.tools.Get(tc.Name)
 	if !ok {
+		rec.Outcome = "unknown"
+		rec.Err = "unknown tool"
 		return fmt.Sprintf("Error: unknown tool %q", tc.Name)
 	}
 	if a.Mode() == Plan && !tool.ReadOnly() {
+		rec.Outcome = "denied_plan"
+		rec.Err = "plan mode"
 		return fmt.Sprintf("Error: tool %q is not available in plan mode", tc.Name)
 	}
 	if a.allowTool != nil {
 		if err := a.allowTool(ctx, tc.Name, tc.Arguments); err != nil {
+			rec.Outcome = "denied_user"
+			rec.Err = clip(err.Error(), 200)
 			return "Error: tool denied: " + err.Error()
 		}
 	}
 	if err := hooks.Pre(ctx, a.opts.Workdir, tc.Name, tc.Arguments); err != nil {
 		if hooks.IsDenied(err) {
+			rec.Outcome = "denied_hook"
+			rec.Err = clip(err.Error(), 200)
 			return "Error: tool denied: " + err.Error()
 		}
+		rec.Outcome = "error"
+		rec.Err = clip(err.Error(), 200)
 		return "Error: hook failed: " + err.Error()
 	}
 	out, err := tool.Run(ctx, json.RawMessage(tc.Arguments))
 	if err != nil {
+		rec.Outcome = "error"
+		rec.Err = clip(err.Error(), 200)
 		out = "Error: " + err.Error()
 	}
 	hooks.Post(ctx, a.opts.Workdir, tc.Name, tc.Arguments, out)
 	if err != nil {
 		return out
 	}
+	rec.Outcome = "ok"
 	if td, isTodo := tool.(*tools.TodoTool); isTodo {
 		todos := td.Todos()
 		a.mu.Lock()
