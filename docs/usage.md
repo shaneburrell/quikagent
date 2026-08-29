@@ -41,7 +41,7 @@ Sessions are JSONL under `~/.quikagent/sessions`.
 | `tab` | build / plan |
 | `f2` / `shift+f2` | cycle models (favorites + auto) |
 | `ctrl+p` | command palette |
-| `ctrl+b` | toggle sidebar (needs width ≥ 100) |
+| `ctrl+b` | toggle sidebar (shows when terminal is ≥ 100 cols) |
 | `shift+↑/↓`, `pgup`/`pgdn`, or mouse wheel | scroll transcript |
 | wheel on input | move caret in multiline input |
 | `↑/↓` (empty input) | prompt history |

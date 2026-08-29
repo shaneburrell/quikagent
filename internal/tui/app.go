@@ -127,7 +127,6 @@ type App struct {
 // NewApp builds an interactive app over a taken-over terminal.
 func NewApp(term *Terminal, ag *agent.Agent, client *llm.Client, sess *session.Session, cfg *config.Config) *App {
 	w, h := term.Size()
-	sideOn := cfg.Sidebar && SideWidth(w-1) > 0
 	a := &App{
 		term:        term,
 		renderer:    NewRenderer(term),
@@ -140,7 +139,7 @@ func NewApp(term *Terminal, ag *agent.Agent, client *llm.Client, sess *session.S
 		width:       w - 1,
 		height:      h,
 		follow:      true,
-		sidebarOn:   sideOn,
+		sidebarOn:   cfg.Sidebar,
 		historyIdx:  -1,
 		inputCh:     make(chan []byte, 16),
 		approveCh:   make(chan approveRequest, 1),
@@ -372,7 +371,12 @@ func (a *App) onResize() {
 
 func (a *App) handleKeys(keys []Key) {
 	for _, k := range keys {
-		// Approvals and questions take precedence over overlays.
+		// Overlay owns the keyboard while visible so palette/setup
+		// filters cannot silently approve a hidden prompt.
+		if a.overlay != "" {
+			a.handleOverlayKey(k)
+			continue
+		}
 		if a.pending != nil {
 			a.handleApprovalKey(k)
 			continue
@@ -381,18 +385,16 @@ func (a *App) handleKeys(keys []Key) {
 			a.handleQuestionKey(k)
 			continue
 		}
-		if a.overlay != "" {
-			a.handleOverlayKey(k)
-			continue
-		}
 		if k.Kind == KeyMouse {
 			a.handleMouse(k)
 			continue
 		}
 		switch {
 		case k.Kind == KeyRune:
+			a.historyIdx = -1
 			a.input.Insert(k.Rune)
 		case k.Kind == KeyPaste:
+			a.historyIdx = -1
 			a.input.Paste(k.Text)
 		case k.Kind == KeyCtrl:
 			switch k.Ctrl {
@@ -421,10 +423,17 @@ func (a *App) handleKeys(keys []Key) {
 				a.input.Clear()
 			}
 		case k.is(KeyShiftEnter):
+			if a.busy {
+				a.model.Note("turn in progress — ctrl+c to cancel")
+				continue
+			}
+			a.historyIdx = -1
 			a.input.Newline()
 		case k.is(KeyBackspace):
+			a.historyIdx = -1
 			a.input.Backspace()
 		case k.is(KeyDelete):
+			a.historyIdx = -1
 			a.input.Delete()
 		case k.is(KeyLeft):
 			a.input.Left()
@@ -437,7 +446,7 @@ func (a *App) handleKeys(keys []Key) {
 				a.input.Up()
 			}
 		case k.is(KeyDown):
-			if a.historyIdx >= 0 {
+			if a.historyIdx >= 0 && !a.busy {
 				a.historyDown()
 			} else {
 				a.input.Down()
@@ -627,8 +636,7 @@ func (a *App) cycleModel(reverse bool) {
 func (a *App) toggleSidebar() {
 	a.sidebarOn = !a.sidebarOn
 	a.sidebarScroll = 0
-	if SideWidth(a.width) == 0 {
-		a.sidebarOn = false
+	if a.sidebarOn && SideWidth(a.width+1) == 0 {
 		a.model.Note("sidebar needs width ≥ 100")
 	} else if a.sidebarOn {
 		a.model.Note("sidebar on")
@@ -702,7 +710,7 @@ func (a *App) handleOverlayKey(k Key) {
 		case configActToggleSidebar:
 			a.cfg.Sidebar = !a.cfg.Sidebar
 			_ = a.cfg.Save()
-			a.sidebarOn = a.cfg.Sidebar && SideWidth(a.width) > 0
+			a.sidebarOn = a.cfg.Sidebar
 			a.sidebarScroll = 0
 			state := "off"
 			if a.cfg.Sidebar {
@@ -1534,17 +1542,66 @@ func (a *App) applyCompactResult(ok bool) {
 	a.model.Note("conversation compacted")
 }
 
-func (a *App) scrollBy(delta int) {
-	inputRows, _, _, _ := a.inputBlock()
-	mainW := a.hitMainW
-	if mainW < 1 {
-		mainW = a.width
+// paneWidths returns sidebar and main-pane widths. sidebarOn is intent;
+// a too-narrow terminal only hides drawing (sideW == 0).
+func (a *App) paneWidths() (sideW, mainW int) {
+	if a.sidebarOn {
+		sideW = SideWidth(a.width + 1)
 	}
-	promptRows := a.promptStrip(mainW)
-	histH := a.height - len(inputRows) - 2 - len(promptRows)
+	mainW = a.width
+	if sideW > 0 {
+		mainW = a.width - sideW - 1
+	}
+	if mainW < 20 {
+		return 0, a.width
+	}
+	return sideW, mainW
+}
+
+// inputRowCap is how many compose-band rows fit without overflowing
+// the screen. Prefer shrinking input over forcing histH to 1.
+func (a *App) inputRowCap(promptN int) int {
+	avail := a.height - 2 - promptN
+	if avail < 2 {
+		avail = 2
+	}
+	cap := maxInputRows
+	if cap > avail-1 {
+		cap = avail - 1
+	}
+	if cap < 1 {
+		cap = 1
+	}
+	return cap
+}
+
+// composeLayout sizes the transcript and compose band for the current
+// terminal. It sets the transcript wrap width to the main pane.
+func (a *App) composeLayout() (sideW, mainW, histH int, inputRows, promptRows []Row, cy, cx int, cursorVisible bool) {
+	sideW, mainW = a.paneWidths()
+	saved := a.width
+	a.width = mainW
+	if a.model != nil {
+		a.model.SetWidth(mainW)
+	}
+	promptRows = a.promptStrip(mainW)
+	cap := a.inputRowCap(len(promptRows))
+	inputRows, cy, cx, cursorVisible = a.inputBlockCapped(cap)
+	a.width = saved
+
+	avail := a.height - 2 - len(promptRows)
+	if avail < 2 {
+		avail = 2
+	}
+	histH = avail - len(inputRows)
 	if histH < 1 {
 		histH = 1
 	}
+	return
+}
+
+func (a *App) scrollBy(delta int) {
+	_, _, histH, _, _, _, _, _ := a.composeLayout()
 	rows := a.model.Rows()
 	max := len(rows) - histH
 	if max < 0 {
@@ -1563,7 +1620,7 @@ func (a *App) sidebarScrollBy(delta int) {
 	sideW := a.hitSideW
 	if sideW <= 0 {
 		if a.sidebarOn {
-			sideW = SideWidth(a.width)
+			sideW = SideWidth(a.width + 1)
 		}
 		if sideW <= 0 {
 			return
@@ -1571,12 +1628,8 @@ func (a *App) sidebarScrollBy(delta int) {
 	}
 	bodyH := a.hitBodyH
 	if bodyH < 1 {
-		inputRows, _, _, _ := a.inputBlock()
-		histH := a.height - len(inputRows) - 2
-		if histH < 1 {
-			histH = 1
-		}
-		bodyH = histH + 1 + len(inputRows)
+		_, _, histH, inputRows, promptRows, _, _, _ := a.composeLayout()
+		bodyH = histH + len(promptRows) + 1 + len(inputRows)
 	}
 	d := a.sidebarData("")
 	lines := SidebarLines(d, sideW)
@@ -1637,34 +1690,7 @@ func (a *App) render() {
 		return
 	}
 
-	sideW := 0
-	if a.sidebarOn {
-		sideW = SideWidth(a.width)
-		if sideW == 0 {
-			a.sidebarOn = false
-		}
-	}
-	mainW := a.width
-	if sideW > 0 {
-		mainW = a.width - sideW - 1
-	}
-	if mainW < 20 {
-		mainW = a.width
-		sideW = 0
-	}
-
-	// Temporarily set width for input wrapping in the main pane.
-	savedW := a.width
-	a.width = mainW
-	inputRows, cy, cx, cursorVisible := a.inputBlock()
-	a.width = savedW
-
-	promptRows := a.promptStrip(mainW)
-	// Reserve 1 for separator + 1 for status + pinned prompt strip.
-	histH := a.height - len(inputRows) - 2 - len(promptRows)
-	if histH < 1 {
-		histH = 1
-	}
+	sideW, mainW, histH, inputRows, promptRows, cy, cx, cursorVisible := a.composeLayout()
 	rows := a.model.Rows()
 	max := len(rows) - histH
 	if max < 0 {
@@ -1856,6 +1882,13 @@ func joinRows(parts ...Row) Row {
 // inputBlock renders the prompt + input lines and reports where the
 // text cursor sits (screen cells), or that it is scrolled out of view.
 func (a *App) inputBlock() (rows []Row, cy, cx int, visible bool) {
+	return a.inputBlockCapped(maxInputRows)
+}
+
+func (a *App) inputBlockCapped(cap int) (rows []Row, cy, cx int, visible bool) {
+	if cap < 1 {
+		cap = 1
+	}
 	lines := strings.Split(a.input.Text(), "\n")
 	curLine := a.input.CursorLine()
 	curCol := a.input.CursorCol()
@@ -1868,7 +1901,7 @@ func (a *App) inputBlock() (rows []Row, cy, cx int, visible bool) {
 		for wi, w := range wr {
 			prefix := "  "
 			if li == 0 && wi == 0 {
-				prefix = "❯ "
+				prefix = "› "
 			}
 			w.Segs = append([]Segment{{Text: prefix, Attr: styleAccent}}, w.Segs...)
 			all = append(all, w)
@@ -1880,16 +1913,16 @@ func (a *App) inputBlock() (rows []Row, cy, cx int, visible bool) {
 	absRow := lineStart[curLine] + chunkRow
 
 	offset := 0
-	if len(all) > maxInputRows {
-		offset = len(all) - maxInputRows
+	if len(all) > cap {
+		offset = len(all) - cap
 		if absRow < offset {
 			offset = absRow
 		}
 		if offset < 0 {
 			offset = 0
 		}
-		if offset+maxInputRows > len(all) {
-			offset = len(all) - maxInputRows
+		if offset+cap > len(all) {
+			offset = len(all) - cap
 		}
 		if offset < 0 {
 			offset = 0

@@ -448,6 +448,43 @@ func TestAPIStatePlanAndHistory(t *testing.T) {
 	}
 }
 
+func TestAPIStateIncludesPendingApproval(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	sess, err := session.Create()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := New(&fakeAgent{}, sess)
+	s.mu.Lock()
+	s.busy = true
+	s.pending = &approvePending{ID: "appr-1", Name: "write", Args: `{"path":"x"}`}
+	s.mu.Unlock()
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+	res, err := http.Get(ts.URL + "/api/state")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	var st struct {
+		Busy            bool              `json:"busy"`
+		PendingApproval map[string]string `json:"pending_approval"`
+		PendingQuestion map[string]any    `json:"pending_question"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&st); err != nil {
+		t.Fatal(err)
+	}
+	if !st.Busy {
+		t.Fatal("expected busy")
+	}
+	if st.PendingApproval["id"] != "appr-1" || st.PendingApproval["name"] != "write" {
+		t.Fatalf("pending = %+v", st.PendingApproval)
+	}
+	if st.PendingQuestion != nil {
+		t.Fatalf("question = %+v", st.PendingQuestion)
+	}
+}
+
 func TestApproveAlwaysSkipsNextPrompt(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	sess, err := session.Create()

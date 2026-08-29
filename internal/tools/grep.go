@@ -118,6 +118,9 @@ func (g *grepTool) Run(ctx context.Context, args json.RawMessage) (string, error
 				return nil
 			}
 		}
+		if _, resErr := resolve(g.workdir, rel); resErr != nil {
+			return nil
+		}
 		fileMatches, n, scanErr := scanFile(path, re)
 		if scanErr != nil {
 			errors = append(errors, rel+": "+scanErr.Error())

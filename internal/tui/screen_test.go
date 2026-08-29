@@ -145,6 +145,19 @@ func TestWrapRowEmpty(t *testing.T) {
 	}
 }
 
+func TestWrapRowLongSpaceRun(t *testing.T) {
+	row := Row{Segs: []Segment{{Text: "hello" + strings.Repeat(" ", 15), Attr: styleDefault}}}
+	got := WrapRowKeepTrailing(row, 10)
+	if len(got) < 2 {
+		t.Fatalf("expected wrap, got %d rows %q", len(got), textOf(got[0]))
+	}
+	for i, r := range got {
+		if displayWidth(textOf(r)) > 10 {
+			t.Fatalf("row %d width %d > 10: %q", i, displayWidth(textOf(r)), textOf(r))
+		}
+	}
+}
+
 func TestWrapRowKeepTrailing(t *testing.T) {
 	row := Row{Segs: []Segment{{Text: "hello ", Attr: styleDefault}}}
 	trimmed := WrapRow(row, 80)

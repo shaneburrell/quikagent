@@ -217,6 +217,9 @@ func wrapRow(row Row, width int, keepTrailing bool) []Row {
 	i := 0
 	for i < len(toks) {
 		if toks[i].sp {
+			if lineW+1 > width && lineW > 0 {
+				flush()
+			}
 			line = append(line, toks[i])
 			lineW++
 			i++

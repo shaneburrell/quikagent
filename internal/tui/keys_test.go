@@ -61,10 +61,19 @@ func TestParseEscAlone(t *testing.T) {
 }
 
 func TestParseEscThenChar(t *testing.T) {
-	// Bare ESC followed by a printable byte: Esc, then the char.
+	// Alt/Meta (ESC + printable) is a single rune, not Esc then the char.
 	keys := Parse([]byte{0x1b, 'x'})
-	if len(keys) != 2 || !keys[0].is(KeyEsc) || keys[1].Rune != 'x' {
+	if len(keys) != 1 || keys[0].Kind != KeyRune || keys[0].Rune != 'x' {
 		t.Fatalf("keys = %+v", keys)
+	}
+}
+
+func TestParseShiftEnterXterm(t *testing.T) {
+	for _, seq := range []string{"\x1b[13;2~", "\x1b[27;2;13~"} {
+		keys := Parse([]byte(seq))
+		if len(keys) != 1 || !keys[0].is(KeyShiftEnter) {
+			t.Fatalf("%q -> %+v", seq, keys)
+		}
 	}
 }
 
