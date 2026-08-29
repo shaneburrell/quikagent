@@ -33,8 +33,12 @@ quikagent                      # TUI
 ```
 
 Print and `--web` modes need a key via env or an existing config file (they do
-not open setup). Any OpenAI-compatible endpoint works. Defaults and overlays
-are in [docs/config.md](docs/config.md).
+not open setup). Any OpenAI-compatible endpoint works (**BYOK** — you pay the
+provider). Defaults and overlays are in [docs/config.md](docs/config.md).
+
+To run on an always-on box and open the UI from another machine, bind
+loopback and use SSH, Tailscale, or Cloudflared — [docs/hosting.md](docs/hosting.md).
+Do not use `--web-listen-all` as hosted access.
 
 ## Usage
 
@@ -46,7 +50,6 @@ quikagent --continue              # resume latest session
 quikagent --session <id>          # resume by id
 quikagent --plan                  # plan (read-only) mode
 quikagent --web :8080             # web UI (loopback)
-quikagent --web-listen-all --web 0.0.0.0:8080
 quikagent --desktop               # loopback web UI in the system browser
 quikagent --export <id>           # print a session as markdown
 quikagent --continue --export x   # export latest session
@@ -54,6 +57,8 @@ quikagent -version
 ```
 
 Keys, slash commands, sessions, and approvals: [docs/usage.md](docs/usage.md).
+Web UI: [docs/web-ui.md](docs/web-ui.md).
+Remote / always-on: [docs/hosting.md](docs/hosting.md).
 Tools and sandbox: [docs/tools.md](docs/tools.md).
 Skills, hooks, custom agents: [docs/extending.md](docs/extending.md).
 
@@ -61,12 +66,16 @@ Skills, hooks, custom agents: [docs/extending.md](docs/extending.md).
 
 | Guide | Topic |
 |-------|--------|
-| [Install](docs/install.md) | Homebrew, source build |
+| [Install](docs/install.md) | Homebrew, tarball, source build |
 | [Config](docs/config.md) | YAML, env, providers, MCP, permissions |
-| [Usage](docs/usage.md) | CLI, TUI, web, print, plan |
+| [Usage](docs/usage.md) | CLI, TUI, print, plan |
+| [Web UI](docs/web-ui.md) | Loopback SSE UI, approvals, sessions |
+| [Hosting](docs/hosting.md) | Always-on + SSH / Tailscale / Cloudflared |
 | [Tools](docs/tools.md) | Built-ins, sandbox, `@` mentions |
 | [Extending](docs/extending.md) | Skills, hooks, commands, agents |
+| [Lab VM](docs/harvester.md) | Harvester cloud-init (not the hosted guide) |
 | [Architecture](docs/architecture.md) | Package map |
+| [Design specs](docs/design/) | Proposed `serve` / jobs / projects (not shipped) |
 
 ## License
 

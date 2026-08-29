@@ -18,4 +18,7 @@ internal/mention     @path / @git expansion
 internal/text        output clipping
 ```
 
-See [AGENTS.md](../AGENTS.md) for conventions when changing this tree.
+User guides: [install.md](install.md), [hosting.md](hosting.md),
+[web-ui.md](web-ui.md). Proposed daemon / jobs / projects:
+[design/](design/). Conventions when changing this tree:
+[AGENTS.md](../AGENTS.md).

@@ -73,9 +73,13 @@ You review diffs. Do not edit files.
 
 ## MCP
 
-`mcpServers` in config (stdio `command`/`args`/`env`, or `url`) register
-as `mcp_<name>_<tool>`. Attach warnings go to stderr; a hard attach
-failure aborts startup.
+`mcpServers` in config register as `mcp_<name>_<tool>`. **stdio only:**
+set `command`, optional `args` and `env`. A server with `url` and no
+`command` is skipped with a stderr warning (`remote MCP URL is
+configured but not yet supported`). Failed stdio attaches are also
+warnings; startup continues.
+
+Project overlay merges MCP servers by name. See [config.md](config.md).
 
 ## Next
 

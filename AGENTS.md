@@ -50,7 +50,9 @@ Prefer `go test ./...` before claiming a change works. Use the local binary for 
 
 - Never commit API keys, deploy private keys, or `~/.quikagent/config.yaml`.
 - Env vars (`QUIKAGENT_API_KEY`, etc.) win over config file — useful for CI/lab.
-- Do not open `--web` on LAN by default; bind `127.0.0.1` (use `--web-listen-all` only when intentional).
+- Do not open `--web` on LAN by default; bind `127.0.0.1`. Remote access
+  is SSH, Tailscale, or Cloudflared ([docs/hosting.md](docs/hosting.md)).
+  `--web-listen-all` is not a supported hosted path.
 - Print mode requires `--yes` to auto-approve mutating tools; otherwise prompts on stdin. `--yes` does not apply to `--web`.
 - `bash` is intentionally **not** filesystem-sandboxed (coding agent needs host tools); keys/tokens are scrubbed from its env. File tools (`read`/`write`/`edit`/`glob`/`grep`) are sandboxed to the workdir (symlink-safe).
 - API key in `config.yaml` is plaintext with mode `0600` (not OS-keychain encrypted).
