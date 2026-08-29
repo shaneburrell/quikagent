@@ -56,6 +56,7 @@ mcpServers:
   demo:
     command: npx
     args: ["-y", "@modelcontextprotocol/server-everything"]
+  # url: https://…   # accepted but skipped (stdio only; see extending.md)
 permissions:
   allow: [read, glob, grep]
   deny: ["bash(rm *)"]
@@ -90,10 +91,21 @@ writes YAML.
 `model`. A provider that omits `api_key` clears the active key so a
 previous key cannot leak to the wrong host.
 
+`providers.*.models` is accepted in YAML but **not used** yet
+(`KnownModels` merges the active model, `small_model`, `plan_model`,
+router targets, and the API `/v1/models` list).
+
 ## Permissions
 
 Rules are `tool` or `tool(glob)` (deny wins). Examples: `read`,
 `bash(git status*)`. Used by the TUI, print mode, and the web UI.
+
+## Compaction
+
+`small_model` summarizes older turns. Manual `/compact` in the TUI.
+Auto-compaction also runs at the start of a turn when the session has
+more than 40 messages (keeps the last 12). The web UI has no compact
+control.
 
 ## Router
 
@@ -103,4 +115,4 @@ route keys: `nano`, `coder`, `qwen`, `other`. Enable via config,
 
 ## Next
 
-[usage.md](usage.md) · [tools.md](tools.md) · [extending.md](extending.md)
+[usage.md](usage.md) · [tools.md](tools.md) · [extending.md](extending.md) · [hosting.md](hosting.md)

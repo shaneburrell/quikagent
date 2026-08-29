@@ -26,6 +26,10 @@ A trailing prompt (when not starting with `-`) is the same as `-p`.
 `--web` cannot be combined with `-p`. `--desktop` is a loopback browser
 open, not a native webview.
 
+**Remote access** is loopback plus SSH, Tailscale, or Cloudflared — not
+`--web-listen-all`. See [hosting.md](hosting.md). Web UI details:
+[web-ui.md](web-ui.md).
+
 Sessions are JSONL under `~/.quikagent/sessions`.
 
 ## TUI keys
@@ -59,6 +63,9 @@ Sessions are JSONL under `~/.quikagent/sessions`.
 - **`/config`** — connection, model, router, sidebar default.
 - **`/init`** — write a starter `AGENTS.md` in the workdir if missing.
 - **`/compact`** — summarize older turns to free context (uses `small_model`).
+  The agent also auto-compacts at the start of a turn when the session
+  has more than 40 messages (keeps the last 12, plus a tool-call
+  boundary fix).
 
 Status bar shows `auto·nano→` or `pin·` before the model name.
 
@@ -80,8 +87,9 @@ the session. Web **Always** is the same scope.
 
 - **Print:** one turn, stdout. Prompts on stdin unless `-yes`.
 - **Plan:** read-only tools only (`--plan`, **Tab**, or `/plan` / `/build`). Optional `plan_model` (or `QUIKAGENT_PLAN_MODEL`) selects the chat model for those turns.
-- **Web:** SSE UI on loopback by default. Do not bind on the LAN unless
-  you pass `--web-listen-all` on purpose.
+- **Web:** SSE UI on loopback by default. Reach it remotely with SSH,
+  Tailscale, or Cloudflared ([hosting.md](hosting.md)). Do not use
+  `--web-listen-all` as a hosted path. UI limits: [web-ui.md](web-ui.md).
 
 ## Sidebar
 
@@ -91,4 +99,4 @@ workdir. Toggle with `ctrl+b`. Default on/off is `sidebar` in config.
 
 ## Next
 
-[tools.md](tools.md) · [config.md](config.md)
+[tools.md](tools.md) · [config.md](config.md) · [hosting.md](hosting.md) · [web-ui.md](web-ui.md)
