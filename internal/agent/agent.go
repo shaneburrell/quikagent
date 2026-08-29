@@ -60,6 +60,7 @@ type Agent struct {
 	routerOn    bool
 	modelPinned bool
 	lastRoute   string
+	planModel   string
 	summarizer  Summarizer
 	todos       []TodoItem
 	onCompact   func([]llm.Message)
@@ -75,7 +76,7 @@ func New(llm LLM, toolset *tools.Registry, opts Options) *Agent {
 	if toolset != nil {
 		toolset = toolset.Clone()
 	}
-	a := &Agent{llm: llm, tools: toolset, opts: opts, mode: Build, stepLimit: maxSteps}
+	a := &Agent{llm: llm, tools: toolset, opts: opts, planModel: opts.PlanModel, mode: Build, stepLimit: maxSteps}
 	if toolset != nil {
 		if _, ok := toolset.Get("skill"); !ok {
 			toolset.Add(tools.NewSkill(opts.Workdir))
@@ -100,6 +101,14 @@ func (a *Agent) SetMode(m Mode) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.mode = m
+}
+
+// SetPlanModel sets the optional model used for plan-mode turns.
+// Empty means honor Arch-Router (or the current model) as usual.
+func (a *Agent) SetPlanModel(model string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.planModel = model
 }
 
 // SetAllowTool installs an optional approval callback. Nil auto-allows.
@@ -347,10 +356,12 @@ func (a *Agent) Run(ctx context.Context, userText string, ev chan<- Event) {
 	needCompact := len(a.messages) > compactMessageThreshold
 	a.mu.Unlock()
 	if needCompact {
+		emitStatus(ev, "compacting")
 		a.CompactCtx(ctx)
 	}
 
-	if a.RouterEnabled() {
+	if !a.usePlanModel() && a.RouterEnabled() {
+		emitStatus(ev, "routing")
 		a.mu.RLock()
 		r := a.router
 		a.mu.RUnlock()
@@ -372,6 +383,14 @@ func (a *Agent) Run(ctx context.Context, userText string, ev chan<- Event) {
 		ev <- routeEv
 	}
 
+	turnModel := a.Model()
+	planEmitted := false
+	defer func() {
+		if !a.ModelPinned() && a.Model() != turnModel {
+			a.setModel(turnModel, false)
+		}
+	}()
+
 	usage := &llm.Usage{}
 	limit := a.stepLimit
 	if limit <= 0 {
@@ -383,11 +402,13 @@ func (a *Agent) Run(ctx context.Context, userText string, ev chan<- Event) {
 		if mode == Plan {
 			defs = a.tools.ReadOnly().List()
 		}
+		a.applyStepModel(ev, turnModel, &planEmitted)
 
 		a.mu.RLock()
 		wire := append([]llm.Message{{Role: llm.RoleSystem, Content: systemPrompt(a.opts, mode)}}, a.messages...)
 		maxTok := a.opts.MaxTokens
 		a.mu.RUnlock()
+		emitStatus(ev, "waiting")
 		ch, err := a.llm.Chat(ctx, wire, defs, maxTok)
 		if err != nil {
 			ev <- Event{Type: EventError, Err: err}
@@ -422,6 +443,39 @@ func (a *Agent) Run(ctx context.Context, userText string, ev chan<- Event) {
 		}
 	}
 	ev <- Event{Type: EventError, Err: fmt.Errorf("stopped after %d tool steps without a final answer", limit)}
+}
+
+func emitStatus(ev chan<- Event, name string) {
+	ev <- Event{Type: EventStatus, Name: name, Text: name}
+}
+
+// usePlanModel reports whether this turn should use plan_model and skip the router.
+func (a *Agent) usePlanModel() bool {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.mode == Plan && a.planModel != "" && !a.modelPinned
+}
+
+// applyStepModel applies plan_model (or restores the turn model) when mode changes mid-turn.
+func (a *Agent) applyStepModel(ev chan<- Event, turnModel string, planEmitted *bool) {
+	if a.usePlanModel() {
+		a.mu.RLock()
+		planModel := a.planModel
+		a.mu.RUnlock()
+		a.setModel(planModel, false)
+		if !*planEmitted {
+			*planEmitted = true
+			a.mu.Lock()
+			a.lastRoute = "plan"
+			a.mu.Unlock()
+			ev <- Event{Type: EventRoute, Name: "plan", Model: planModel}
+		}
+		return
+	}
+	if *planEmitted {
+		a.setModel(turnModel, false)
+		*planEmitted = false
+	}
 }
 
 // consume drains one LLM stream, forwarding deltas to ev. It returns

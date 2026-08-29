@@ -18,6 +18,7 @@ do not open the setup screen.
 | `QUIKAGENT_BASE_URL` | `https://api.openai.com/v1` | OpenAI-compatible `/v1` |
 | `QUIKAGENT_MODEL` | `gpt-4o` | Chat model |
 | `QUIKAGENT_SMALL_MODEL` | `gpt-4o-mini` | Compaction summarizer |
+| `QUIKAGENT_PLAN_MODEL` | | Plan-mode chat model; empty honors Arch-Router |
 | `QUIKAGENT_ROUTER` | off | `1` / `true` / `yes` / `on` enables |
 | `QUIKAGENT_ROUTER_MODEL` | `arch-router-1.5b` | Must emit route JSON only |
 | `QUIKAGENT_PROVIDER` | | Named entry under `providers:` |
@@ -33,6 +34,7 @@ api_key: "..."
 base_url: https://api.openai.com/v1
 model: gpt-4o
 small_model: gpt-4o-mini
+plan_model: gpt-4o            # optional; used for plan (read-only) turns
 max_tokens: 8192
 sidebar: true
 provider: lab                 # optional; selects providers.lab

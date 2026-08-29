@@ -58,6 +58,16 @@ func TestEncodeEvent(t *testing.T) {
 	if w.Type != "text" || w.Text != "hi" {
 		t.Fatalf("%+v", w)
 	}
+	b, err = EncodeEvent(agent.Event{Type: agent.EventStatus, Name: "waiting", Text: "waiting"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(b, &w); err != nil {
+		t.Fatal(err)
+	}
+	if w.Type != "status" || w.Name != "waiting" || w.Text != "waiting" {
+		t.Fatalf("%+v", w)
+	}
 }
 
 func TestTurnAndSSE(t *testing.T) {

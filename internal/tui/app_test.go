@@ -314,6 +314,33 @@ func TestMatchSessionPrefixUnique(t *testing.T) {
 	}
 }
 
+func TestHandleEventStatusThenTextClearsWait(t *testing.T) {
+	a := &App{model: NewModel()}
+	a.model.SetWidth(80)
+	a.handleEvent(agent.Event{Type: agent.EventStatus, Name: "waiting", Text: "waiting"})
+	if a.phase != "waiting" {
+		t.Fatalf("phase = %q", a.phase)
+	}
+	var sawWait bool
+	for _, b := range a.model.blocks {
+		if b.kind == blockWait && b.name == "waiting" {
+			sawWait = true
+		}
+	}
+	if !sawWait {
+		t.Fatal("expected wait block")
+	}
+	a.handleEvent(agent.Event{Type: agent.EventText, Text: "hello"})
+	if a.phase != "" {
+		t.Fatalf("phase after text = %q", a.phase)
+	}
+	for _, b := range a.model.blocks {
+		if b.kind == blockWait {
+			t.Fatal("wait block should be cleared after text")
+		}
+	}
+}
+
 func TestEventRouteDoesNotWriteCfgModel(t *testing.T) {
 	cfg := &config.Config{Model: "user-model"}
 	a := &App{cfg: cfg, model: NewModel()}

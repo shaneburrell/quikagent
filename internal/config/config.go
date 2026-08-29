@@ -20,6 +20,7 @@ const (
 	EnvRouter       = "QUIKAGENT_ROUTER"
 	EnvRouterModel  = "QUIKAGENT_ROUTER_MODEL"
 	EnvSmallModel   = "QUIKAGENT_SMALL_MODEL"
+	EnvPlanModel    = "QUIKAGENT_PLAN_MODEL"
 	EnvWebSearchURL = "QUIKAGENT_WEBSEARCH_URL"
 	EnvWebSearchKey = "QUIKAGENT_WEBSEARCH_KEY"
 	EnvProvider     = "QUIKAGENT_PROVIDER"
@@ -73,6 +74,7 @@ type fileConfig struct {
 	Model          string               `yaml:"model,omitempty" json:"model,omitempty"`
 	MaxTokens      int                  `yaml:"max_tokens,omitempty" json:"max_tokens,omitempty"`
 	SmallModel     string               `yaml:"small_model,omitempty" json:"small_model,omitempty"`
+	PlanModel      string               `yaml:"plan_model,omitempty" json:"plan_model,omitempty"`
 	Sidebar        *bool                `yaml:"sidebar,omitempty" json:"sidebar,omitempty"`
 	Router         *fileRouter          `yaml:"router,omitempty" json:"router,omitempty"`
 	MCPServers     map[string]MCPServer `yaml:"mcpServers,omitempty" json:"mcpServers,omitempty"`
@@ -105,6 +107,7 @@ type Config struct {
 	Model          string
 	MaxTokens      int
 	SmallModel     string
+	PlanModel      string
 	Sidebar        bool // default sidebar on when terminal is wide enough
 	Workdir        string
 	Router         RouterConfig
@@ -236,6 +239,9 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv(EnvSmallModel); v != "" {
 		cfg.SmallModel = v
 	}
+	if v := os.Getenv(EnvPlanModel); v != "" {
+		cfg.PlanModel = v
+	}
 	if v := os.Getenv(EnvRouterModel); v != "" {
 		cfg.Router.Model = v
 	}
@@ -322,6 +328,9 @@ func mergeFile(cfg *Config, f *fileConfig) {
 	}
 	if f.SmallModel != "" {
 		cfg.SmallModel = f.SmallModel
+	}
+	if f.PlanModel != "" {
+		cfg.PlanModel = f.PlanModel
 	}
 	if f.Sidebar != nil {
 		cfg.Sidebar = *f.Sidebar
@@ -453,6 +462,7 @@ func (c *Config) Save() error {
 		Model:          c.Model,
 		MaxTokens:      c.MaxTokens,
 		SmallModel:     c.SmallModel,
+		PlanModel:      c.PlanModel,
 		Sidebar:        &side,
 		MCPServers:     c.MCPServers,
 		Permissions:    c.Permissions,
@@ -504,7 +514,7 @@ func (c *Config) Save() error {
 }
 
 // KnownModels merges API model IDs with config defaults and route targets.
-// Order: config model, small_model, route models, then remaining API IDs (sorted).
+// Order: config model, small_model, plan_model, route models, then remaining API IDs (sorted).
 func KnownModels(cfg *Config, apiIDs []string) []string {
 	seen := map[string]bool{}
 	var out []string
@@ -519,6 +529,7 @@ func KnownModels(cfg *Config, apiIDs []string) []string {
 	if cfg != nil {
 		add(cfg.Model)
 		add(cfg.SmallModel)
+		add(cfg.PlanModel)
 		if cfg.Router.Routes != nil {
 			// Stable-ish: nano, qwen, other first if present, then rest.
 			for _, name := range []string{"nano", "coder", "qwen", "other"} {

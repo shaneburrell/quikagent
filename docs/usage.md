@@ -52,7 +52,7 @@ Sessions are JSONL under `~/.quikagent/sessions`.
 `/clear`, `/sessions`, `/resume <id>`, `/compact`, `/refresh`, `/undo`,
 `/redo`, `/init`.
 
-- **`/plan`** / **`/build`** / **`/mode`** — switch tool surface (works during a turn). `/mode` with no argument toggles. Same as **Tab**.
+- **`/plan`** / **`/build`** / **`/mode`** — switch tool surface (works during a turn). `/mode` with no argument toggles. Same as **Tab**. When `plan_model` is set, plan turns use that model and skip Arch-Router (a pinned `/model` still wins).
 
 - **`/models`** — pick from API `/v1/models` (merged with config defaults); first row is **auto (Arch-Router)**.
 - **`/model auto`** / **F2** — enable per-turn routing; pinning a model disables it until auto again.
@@ -79,7 +79,7 @@ the session. Web **Always** is the same scope.
 ## Print, plan, web
 
 - **Print:** one turn, stdout. Prompts on stdin unless `-yes`.
-- **Plan:** read-only tools only (`--plan`, **Tab**, or `/plan` / `/build`).
+- **Plan:** read-only tools only (`--plan`, **Tab**, or `/plan` / `/build`). Optional `plan_model` (or `QUIKAGENT_PLAN_MODEL`) selects the chat model for those turns.
 - **Web:** SSE UI on loopback by default. Do not bind on the LAN unless
   you pass `--web-listen-all` on purpose.
 

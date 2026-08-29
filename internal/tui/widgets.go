@@ -21,6 +21,7 @@ const (
 	blockTool
 	blockError
 	blockNote
+	blockWait
 )
 
 // block is one unit of the conversation transcript.
@@ -56,6 +57,7 @@ func (m *Model) User(text string) {
 // Text appends an assistant delta, continuing the current assistant
 // block when possible.
 func (m *Model) Text(delta string) {
+	m.clearWait()
 	m.collapseFinishedThinking()
 	if n := len(m.blocks); n > 0 && m.blocks[n-1].kind == blockAssistant {
 		m.blocks[n-1].text += delta
@@ -66,6 +68,7 @@ func (m *Model) Text(delta string) {
 
 // Thinking appends a reasoning delta.
 func (m *Model) Thinking(delta string) {
+	m.clearWait()
 	if n := len(m.blocks); n > 0 && m.blocks[n-1].kind == blockThinking {
 		m.blocks[n-1].text += delta
 		return
@@ -75,8 +78,32 @@ func (m *Model) Thinking(delta string) {
 
 // ToolStart records a tool that is about to run.
 func (m *Model) ToolStart(name, args string) {
+	m.clearWait()
 	m.collapseFinishedThinking()
 	m.blocks = append(m.blocks, block{kind: blockTool, name: name, args: args})
+}
+
+// Status upserts a tool-like wait card for a pre-stream phase (waiting, routing, compacting).
+func (m *Model) Status(name string) {
+	if name == "" {
+		name = "waiting"
+	}
+	m.clearWait()
+	m.blocks = append(m.blocks, block{kind: blockWait, name: name})
+}
+
+// clearWait removes any in-progress wait cards so a spinner cannot stick.
+func (m *Model) clearWait() {
+	if len(m.blocks) == 0 {
+		return
+	}
+	out := m.blocks[:0]
+	for _, b := range m.blocks {
+		if b.kind != blockWait {
+			out = append(out, b)
+		}
+	}
+	m.blocks = out
 }
 
 // ToolDone finishes the most recent unfinished tool block. If no open
@@ -117,6 +144,7 @@ func (m *Model) closeOpenTools() {
 
 // Error records a turn-level error.
 func (m *Model) Error(text string) {
+	m.clearWait()
 	m.blocks = append(m.blocks, block{kind: blockError, text: text})
 }
 
@@ -152,6 +180,8 @@ func (m *Model) Rows() []Row {
 			out = append(out, m.thinkingRows(b)...)
 		case blockTool:
 			out = append(out, m.toolRows(b)...)
+		case blockWait:
+			out = append(out, m.waitRows(b)...)
 		case blockError:
 			out = append(out, m.errorRows(b)...)
 		case blockNote:
@@ -267,6 +297,22 @@ func (m *Model) toolRows(b block) []Row {
 	return out
 }
 
+func (m *Model) waitRows(b block) []Row {
+	card := styleDefault.withBG(colSubtle)
+	var head []Segment
+	head = append(head, Segment{Text: "│ ", Attr: styleDim.withBG(colSubtle)})
+	head = append(head, Segment{Text: string(spinnerFrames[m.spinner]) + " ", Attr: styleAccent.withBG(colSubtle)})
+	head = append(head, Segment{Text: b.name, Attr: styleMagenta.withBold().withBG(colSubtle)})
+	hw := 0
+	for _, s := range head {
+		hw += displayWidth(s.Text)
+	}
+	if hw < m.width {
+		head = append(head, Segment{Text: strings.Repeat(" ", m.width-hw), Attr: card})
+	}
+	return []Row{{Segs: head}}
+}
+
 func (m *Model) errorRows(b block) []Row {
 	var out []Row
 	for _, line := range strings.Split(b.text, "\n") {
@@ -332,6 +378,7 @@ type StatusOpts struct {
 	Auto, Pin                     bool
 	Prompt, Completion            int
 	Busy                          bool
+	Phase                         string
 	Spinner                       int
 	Width                         int
 	ScrollHint                    string
@@ -357,7 +404,11 @@ type statusPart struct {
 func StatusRowOpts(o StatusOpts) Row {
 	hint := "tab plan/build · f2 model · ctrl+p · wheel · ctrl+q"
 	if o.Busy {
-		hint = fmt.Sprintf("%s working…", string(spinnerFrames[o.Spinner%len(spinnerFrames)]))
+		phase := o.Phase
+		if phase == "" {
+			phase = "working"
+		}
+		hint = fmt.Sprintf("%s %s…", string(spinnerFrames[o.Spinner%len(spinnerFrames)]), phase)
 	}
 	if o.HasNew && !o.Busy {
 		hint = "↓ new · " + hint
