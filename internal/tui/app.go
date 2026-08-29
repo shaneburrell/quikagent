@@ -152,6 +152,7 @@ func NewApp(term *Terminal, ag *agent.Agent, client *llm.Client, sess *session.S
 	ag.SetAllowTool(a.allowTool)
 	ag.SetQuestionAsk(a.askQuestion)
 	ag.SetOnCompact(func([]llm.Message) { a.compacted.Store(true) })
+	agent.BindSessionTrace(ag, sess, "tui")
 	a.refreshSideData()
 	return a
 }
@@ -1092,6 +1093,7 @@ func (a *App) command(text string) {
 		a.usage = agent.Usage{}
 		if s, err := session.Create(); err == nil {
 			a.sess = s
+			agent.BindSessionTrace(a.agent, s, "tui")
 			a.refreshSideData()
 			a.model.Note("new session started: " + shortID(s.ID))
 		}
@@ -1145,6 +1147,7 @@ func (a *App) command(text string) {
 			return
 		}
 		a.sess = loaded
+		agent.BindSessionTrace(a.agent, loaded, "tui")
 		a.agent.LoadHistory(loaded.Messages())
 		a.model.Reset()
 		a.ReplayHistory(loaded.Messages())

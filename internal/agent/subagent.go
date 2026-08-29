@@ -59,6 +59,11 @@ func (a *Agent) runSubagent(ctx context.Context, agentID, prompt string) (string
 	child.SetMode(mode)
 	child.SetAllowTool(a.allowTool)
 	child.SetSummarizer(a.summarizer)
+	a.mu.RLock()
+	fn, fe := a.trace, a.traceFrontend
+	a.mu.RUnlock()
+	child.SetTrace(fn)
+	child.SetTraceFrontend(fe)
 
 	ev := make(chan Event, 64)
 	go child.Run(ctx, prefix+prompt, ev)

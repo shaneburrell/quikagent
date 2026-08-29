@@ -42,6 +42,8 @@ func (f *fakeAgent) SetMode(m agent.Mode)                { f.mode = m }
 func (f *fakeAgent) SetAllowTool(fn agent.AllowFunc)     { f.allow = fn }
 func (f *fakeAgent) SetOnCompact(fn func([]llm.Message)) {}
 func (f *fakeAgent) SetQuestionAsk(fn tools.AskFunc)     {}
+func (f *fakeAgent) SetTrace(fn agent.TraceFunc)         {}
+func (f *fakeAgent) SetTraceFrontend(name string)        {}
 func (f *fakeAgent) Messages() []llm.Message             { return f.msgs }
 func (f *fakeAgent) LoadHistory(msgs []llm.Message)      { f.msgs = append([]llm.Message(nil), msgs...) }
 func (f *fakeAgent) ResetTodos()                         {}

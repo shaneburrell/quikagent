@@ -115,8 +115,11 @@ func List() ([]Info, error) {
 	var ids []string
 	for _, e := range entries {
 		name := e.Name()
-		if len(name) > 6 && name[len(name)-6:] == ".jsonl" {
-			ids = append(ids, name[:len(name)-6])
+		if strings.HasSuffix(name, ".trace.jsonl") {
+			continue
+		}
+		if strings.HasSuffix(name, ".jsonl") {
+			ids = append(ids, strings.TrimSuffix(name, ".jsonl"))
 		}
 	}
 	sort.Strings(ids)

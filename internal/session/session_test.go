@@ -261,6 +261,87 @@ func TestEnsureTitleFromFirstUser(t *testing.T) {
 	}
 }
 
+func TestAppendAndReadTraces(t *testing.T) {
+	pointDirAt(t)
+	s, err := Create()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AppendTrace(TraceRecord{Type: "turn_start", Turn: "t1", Mode: "build", Model: "qwen"}); err != nil {
+		t.Fatal(err)
+	}
+	ok := true
+	if err := s.AppendTrace(TraceRecord{Type: "turn_end", Turn: "t1", OK: &ok, Steps: 1, MS: 12}); err != nil {
+		t.Fatal(err)
+	}
+	st, err := os.Stat(s.TracePath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Mode().Perm() != 0o600 {
+		t.Fatalf("perm = %o", st.Mode().Perm())
+	}
+	recs, skipped, err := s.ReadTraces()
+	if err != nil || skipped != 0 {
+		t.Fatalf("err=%v skipped=%d", err, skipped)
+	}
+	if len(recs) != 2 || recs[0].Type != "turn_start" || recs[0].V != TraceVersion {
+		t.Fatalf("recs = %+v", recs)
+	}
+	if recs[1].Type != "turn_end" || recs[1].OK == nil || !*recs[1].OK {
+		t.Fatalf("end = %+v", recs[1])
+	}
+}
+
+func TestReadTracesSkipsCorrupt(t *testing.T) {
+	pointDirAt(t)
+	s, err := Create()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(s.TracePath(), []byte("{bad\n{\"v\":1,\"ts\":\"t\",\"type\":\"compact\",\"before\":4,\"after\":2}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	recs, skipped, err := s.ReadTraces()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if skipped != 1 || len(recs) != 1 || recs[0].Type != "compact" {
+		t.Fatalf("recs=%+v skipped=%d", recs, skipped)
+	}
+}
+
+func TestListIgnoresTraceSidecar(t *testing.T) {
+	pointDirAt(t)
+	s, err := Create()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = s.Append(llm.Message{Role: llm.RoleUser, Content: "hi"})
+	if err := s.AppendTrace(TraceRecord{Type: "turn_start", Turn: "t1"}); err != nil {
+		t.Fatal(err)
+	}
+	infos, err := List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(infos) != 1 || infos[0].ID != s.ID {
+		t.Fatalf("infos = %+v", infos)
+	}
+}
+
+func TestFormatTraces(t *testing.T) {
+	ok := true
+	md := FormatTraces([]TraceRecord{
+		{Type: "turn_start", Turn: "1", Mode: "build", Model: "qwen", Frontend: "print"},
+		{Type: "tool", Name: "read", MS: 3, Outcome: "ok"},
+		{Type: "turn_end", Turn: "1", MS: 10, Steps: 1, OK: &ok},
+	})
+	if !strings.Contains(md, "## Trace") || !strings.Contains(md, "tool read") || !strings.Contains(md, "frontend=print") {
+		t.Fatalf("md = %s", md)
+	}
+}
+
 func TestTitleFromPrompt(t *testing.T) {
 	if got := TitleFromPrompt("  hello\nworld  "); got != "hello" {
 		t.Fatalf("%q", got)

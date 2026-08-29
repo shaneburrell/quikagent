@@ -49,7 +49,7 @@ Do not bump a module that is only used in comments or docs. Commit `go.mod` and 
 | `internal/router` | Arch-Router model selection |
 | `internal/tools` | Tool registry + sandbox (+ MCP) |
 | `internal/agent` | Model↔tool loop, system prompt |
-| `internal/session` | JSONL under `~/.quikagent/sessions` |
+| `internal/session` | JSONL + `.trace.jsonl` sidecar under `~/.quikagent/sessions` |
 | `internal/tui` | Alternate-screen TUI |
 | `internal/server` | HTTP/SSE web frontend |
 | `internal/hooks` | Project `.quikagent/hooks/` pre-tool / post-tool |
@@ -66,6 +66,8 @@ Do not bump a module that is only used in comments or docs. Commit `go.mod` and 
 
 ## Secrets & safety
 
+- Session traces (`<id>.trace.jsonl`) stay local (mode `0600`) and must
+  not be sent to the model or committed.
 - Never commit API keys, deploy private keys, or `~/.quikagent/config.yaml`.
 - Env vars (`QUIKAGENT_API_KEY`, etc.) win over config file — useful for CI/lab.
 - Do not open `--web` on LAN by default; bind `127.0.0.1`. Remote access

@@ -228,6 +228,7 @@ func run(print string, cont bool, sessionID string, plan bool, webListen string,
 		if err != nil {
 			return err
 		}
+		agent.BindSessionTrace(ag, sess, "web")
 		srv := server.New(ag, sess)
 		srv.SetPermissions(cfg.Permissions.Allow, cfg.Permissions.Deny)
 		ln, err := net.Listen("tcp", addr)
@@ -314,6 +315,11 @@ func exportSession(id string) error {
 			fmt.Printf("### Tool %s\n\n```\n%s\n```\n\n", m.Name, m.Content)
 		}
 	}
+	recs, _, err := s.ReadTraces()
+	if err != nil {
+		return err
+	}
+	fmt.Print(session.FormatTraces(recs))
 	return nil
 }
 
@@ -343,6 +349,7 @@ func displayWebURL(addr string) string {
 
 // runPrint executes one turn headless, streaming output to stdout.
 func runPrint(ag *agent.Agent, sess *session.Session, prompt string, autoYes bool, perms config.Permissions) error {
+	agent.BindSessionTrace(ag, sess, "print")
 	ag.SetAllowTool(printAllowTool(autoYes, perms))
 	compacted := false
 	ag.SetOnCompact(func([]llm.Message) { compacted = true })
