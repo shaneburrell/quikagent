@@ -1,6 +1,6 @@
 // Package tools implements the capabilities exposed to the model:
 // bash, read, write, edit, glob, grep, list, fetch, git, apply_patch,
-// question, skill, task, todo, websearch, lsp, and mcp.
+// question, skill, task, todo, plan, websearch, lsp, and mcp.
 package tools
 
 import (
@@ -53,6 +53,7 @@ func New(workdir string) *Registry {
 		newFetch(),
 		newGit(workdir),
 		NewTodo(),
+		NewPlan(),
 		NewQuestion(nil),
 		newApplyPatch(workdir),
 	} {

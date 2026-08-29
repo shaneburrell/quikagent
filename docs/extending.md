@@ -58,6 +58,7 @@ The `task` tool runs a child agent (max 20 steps, cannot spawn further
 |---------|----------|
 | `explore` | Read-only search (plan-mode tools) |
 | `general` | Full toolset (default) |
+| `reviewer` | Read-only; PASS/FAIL a completed step |
 | custom | `.quikagent/agents/<id>.md` |
 
 Custom agent markdown may start with YAML front matter:
@@ -66,12 +67,13 @@ Custom agent markdown may start with YAML front matter:
 ---
 name: reviewer
 readonly: true
+model: qwen-review
 ---
 You review diffs. Do not edit files.
 ```
 
 `name` / `id` set the lookup id; `readonly` / `read_only` (`true` / `1` /
-`yes`) forces plan-mode tools.
+`yes`) forces plan-mode tools. Optional `model` pins that custom agent.
 
 ## MCP
 

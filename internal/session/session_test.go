@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"quikagent/internal/llm"
+	"quikagent/internal/tools"
 )
 
 // pointDirAt redirects session storage for tests.
@@ -339,6 +340,36 @@ func TestFormatTraces(t *testing.T) {
 	})
 	if !strings.Contains(md, "## Trace") || !strings.Contains(md, "tool read") || !strings.Contains(md, "frontend=print") {
 		t.Fatalf("md = %s", md)
+	}
+}
+
+func TestPlanSidecarRoundTrip(t *testing.T) {
+	pointDirAt(t)
+	s, err := Create()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Append(llm.Message{Role: llm.RoleUser, Content: "plan"}); err != nil {
+		t.Fatal(err)
+	}
+	p := tools.Plan{Title: "mc", Steps: []tools.PlanStep{{ID: "s1", Title: "scaffold", Status: "pending"}}}
+	if err := s.SavePlan(p); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.LoadPlan()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Title != "mc" || len(got.Steps) != 1 || got.Steps[0].ID != "s1" {
+		t.Fatalf("%+v", got)
+	}
+	loaded, err := Load(s.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got2, err := loaded.LoadPlan()
+	if err != nil || got2.Title != "mc" {
+		t.Fatalf("reload %+v err=%v", got2, err)
 	}
 }
 

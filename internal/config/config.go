@@ -124,7 +124,7 @@ const (
 	routeDescNano  = "Trivial mechanical shell and git chores: commits, status, short one-off commands, titles"
 	routeDescCoder = "Implement or edit code right now: write files, refactor, tests. Not for planning or proposing a design."
 	routeDescQwen  = "Plan or design a system, feature, or architecture before coding. Use this when the user wants a proposal, tradeoffs, or a plan — even if they said make, build, or implement."
-	routeDescOther = "Off-topic chat, thanks, or the user said they are done. Not for coding or planning requests."
+	routeDescOther = "Off-topic chat or thanks after the work is finished. Not for proceed, go, yes, or implement — those are coding."
 )
 
 // DefaultRoutes returns the built-in Arch-Router route map.
@@ -163,6 +163,7 @@ var staleRouteDescriptions = map[string][]string{
 	"other": {
 		"Intent unclear — keep the current model; do not switch",
 		"Intent unclear — keep the coding model; do not switch to Qwen",
+		"Off-topic chat, thanks, or the user said they are done. Not for coding or planning requests.",
 	},
 }
 

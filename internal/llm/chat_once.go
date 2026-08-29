@@ -15,7 +15,7 @@ import (
 // assistant message content. Used by the Arch-Router (no SSE).
 func (c *Client) ChatOnce(ctx context.Context, model string, messages []Message, maxTokens int) (string, error) {
 	if model == "" {
-		model = c.model
+		model = c.Model()
 	}
 	if maxTokens <= 0 {
 		maxTokens = 64

@@ -54,26 +54,30 @@ type TodoItem = tools.TodoItem
 // Agent owns the conversation and runs user turns. It is safe for one
 // concurrent Run; frontends serialize turns.
 type Agent struct {
-	llm           LLM
-	tools         *tools.Registry
-	opts          Options
-	mode          Mode
-	messages      []llm.Message
-	allowTool     AllowFunc
-	router        ModelRouter
-	routerOn      bool
-	modelPinned   bool
-	lastRoute     string
-	planModel     string
-	summarizer    Summarizer
-	todos         []TodoItem
-	onCompact     func([]llm.Message)
-	stepLimit     int
-	planQuestions int
-	trace         TraceFunc
-	traceFrontend string
-	traceTurn     string
-	mu            sync.RWMutex
+	llm                LLM
+	tools              *tools.Registry
+	opts               Options
+	mode               Mode
+	messages           []llm.Message
+	allowTool          AllowFunc
+	router             ModelRouter
+	routerOn           bool
+	modelPinned        bool
+	lastRoute          string
+	planModel          string
+	summarizer         Summarizer
+	todos              []TodoItem
+	onCompact          func([]llm.Message)
+	stepLimit          int
+	planQuestions      int
+	trace              TraceFunc
+	traceFrontend      string
+	traceTurn          string
+	homeModel          string
+	planPendingHandoff bool
+	plan               tools.Plan
+	onPlan             func(tools.Plan)
+	mu                 sync.RWMutex
 }
 
 // New builds an Agent with an empty conversation.
@@ -84,7 +88,10 @@ func New(llm LLM, toolset *tools.Registry, opts Options) *Agent {
 	if toolset != nil {
 		toolset = toolset.Clone()
 	}
-	a := &Agent{llm: llm, tools: toolset, opts: opts, planModel: opts.PlanModel, mode: Build, stepLimit: maxSteps}
+	a := &Agent{
+		llm: llm, tools: toolset, opts: opts, planModel: opts.PlanModel,
+		homeModel: opts.Model, mode: Build, stepLimit: maxSteps,
+	}
 	if toolset != nil {
 		if _, ok := toolset.Get("skill"); !ok {
 			toolset.Add(tools.NewSkill(opts.Workdir))
@@ -190,8 +197,37 @@ func (a *Agent) SetOnCompact(fn func([]llm.Message)) {
 func (a *Agent) SetModelAuto(model string) {
 	a.mu.Lock()
 	a.modelPinned = false
+	if model != "" {
+		a.homeModel = model
+	}
 	a.mu.Unlock()
 	a.setModel(model, false)
+}
+
+// SetOnPlan installs a callback when the structured plan changes.
+func (a *Agent) SetOnPlan(fn func(tools.Plan)) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.onPlan = fn
+}
+
+// LoadPlan replaces the structured plan (session resume).
+func (a *Agent) LoadPlan(p tools.Plan) {
+	a.mu.Lock()
+	a.plan = p
+	if p.HasWork() {
+		a.planPendingHandoff = true
+	}
+	a.mu.Unlock()
+}
+
+// Plan returns a copy of the structured plan.
+func (a *Agent) Plan() tools.Plan {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	out := tools.Plan{Title: a.plan.Title, Steps: make([]tools.PlanStep, len(a.plan.Steps))}
+	copy(out.Steps, a.plan.Steps)
+	return out
 }
 
 func (a *Agent) setModel(model string, pin bool) {
@@ -398,12 +434,34 @@ func (a *Agent) Run(ctx context.Context, userText string, ev chan<- Event) {
 		a.CompactCtx(ctx)
 	}
 
+	handoff := a.isHandoff(userText)
+	if a.shouldOrchestrate(userText) {
+		a.clearHandoff()
+		a.runOrchestrated(ctx, ev, &steps, &turnErr)
+		return
+	}
+	if a.Mode() == Build {
+		a.clearHandoff()
+	}
+
 	if !a.usePlanModel() && a.RouterEnabled() {
 		emitStatus(ev, "routing")
 		a.mu.RLock()
 		r := a.router
+		home := a.homeModel
 		a.mu.RUnlock()
-		route, model, raw, err := r.Select(ctx, userText, a.Mode().String())
+		selectMode := a.Mode().String()
+		if handoff {
+			selectMode = "handoff"
+			if home != "" {
+				a.setModel(home, false)
+			}
+		}
+		route, model, raw, err := r.Select(ctx, userText, selectMode)
+		if handoff && (route == "other" || model == "") {
+			route = "coder"
+			model = a.coderModel()
+		}
 		if model != "" {
 			a.setModel(model, false)
 		}
@@ -454,7 +512,7 @@ func (a *Agent) Run(ctx context.Context, userText string, ev chan<- Event) {
 		emitStatus(ev, "waiting")
 		beforeP, beforeC := usage.PromptTokens, usage.CompletionTokens
 		llmStart := time.Now()
-		ch, err := a.llm.Chat(ctx, wire, defs, maxTok)
+		ch, err := a.chat(ctx, a.Model(), wire, defs, maxTok)
 		if err != nil {
 			turnErr = err
 			ev <- Event{Type: EventError, Err: err}
@@ -486,6 +544,9 @@ func (a *Agent) Run(ctx context.Context, userText string, ev chan<- Event) {
 		a.messages = append(a.messages, *assistant)
 		a.mu.Unlock()
 		if len(assistant.ToolCalls) == 0 {
+			if a.Mode() == Plan && turnErr == nil {
+				a.markHandoff()
+			}
 			ev <- Event{Type: EventTurnDone, Usage: usage}
 			return
 		}
@@ -687,7 +748,34 @@ func (a *Agent) runTool(ctx context.Context, tc llm.ToolCall, ev chan<- Event, s
 		a.mu.Unlock()
 		ev <- Event{Type: EventTodos, Todos: todos}
 	}
+	if pt, isPlan := tool.(*tools.PlanTool); isPlan {
+		p := pt.Plan()
+		a.mu.Lock()
+		a.plan = p
+		a.planPendingHandoff = true
+		a.todos = p.Todos()
+		onPlan := a.onPlan
+		a.mu.Unlock()
+		ev <- Event{Type: EventTodos, Todos: p.Todos()}
+		if onPlan != nil {
+			onPlan(p)
+		}
+	}
 	return out
+}
+
+type chatAsLLM interface {
+	ChatAs(ctx context.Context, model string, messages []llm.Message, toolDefs []llm.Tool, maxTokens int) (<-chan llm.Event, error)
+}
+
+func (a *Agent) chat(ctx context.Context, model string, messages []llm.Message, defs []llm.Tool, maxTok int) (<-chan llm.Event, error) {
+	if c, ok := a.llm.(chatAsLLM); ok {
+		return c.ChatAs(ctx, model, messages, defs, maxTok)
+	}
+	if model != "" {
+		a.llm.SetModel(model)
+	}
+	return a.llm.Chat(ctx, messages, defs, maxTok)
 }
 
 func summarizeMessages(msgs []llm.Message) string {

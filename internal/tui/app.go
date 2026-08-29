@@ -153,6 +153,7 @@ func NewApp(term *Terminal, ag *agent.Agent, client *llm.Client, sess *session.S
 	ag.SetQuestionAsk(a.askQuestion)
 	ag.SetOnCompact(func([]llm.Message) { a.compacted.Store(true) })
 	agent.BindSessionTrace(ag, sess, "tui")
+	agent.BindSessionPlan(ag, sess)
 	a.refreshSideData()
 	return a
 }
@@ -1148,6 +1149,7 @@ func (a *App) command(text string) {
 		}
 		a.sess = loaded
 		agent.BindSessionTrace(a.agent, loaded, "tui")
+		agent.BindSessionPlan(a.agent, loaded)
 		a.agent.LoadHistory(loaded.Messages())
 		a.model.Reset()
 		a.ReplayHistory(loaded.Messages())

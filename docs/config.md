@@ -113,11 +113,15 @@ Optional per-turn Arch-Router (OpenCode-compatible prompts). Built-in
 route keys: `nano`, `coder`, `qwen`, `other`. Enable via config,
 `QUIKAGENT_ROUTER=1`, `/router on`, `/model auto`, or `/models` → auto.
 Plan turns still route (Arch sees a “plan and design, not implementation”
-hint) unless `plan_model` is set. Route `other` is off-topic or done —
-keep the current model; it is not “avoid Qwen”. An unparseable Arch
-reply falls back to `qwen`. Built-in route descriptions update on load
-when they still match a previous default; custom description text is
-left alone.
+hint) unless `plan_model` is set. After a plan, a short approval (`go`,
+`yes`, `implement`) is a **handoff**: Arch gets an implement hint, and
+route `other` maps to `coder` instead of keeping Qwen. A structured
+`plan` (session sidecar `<id>.plan.json`) plus `go` dispatches each
+step through Arch into a model-pinned worker; `plan_model` is not used
+for those workers. Route `other` on a normal build turn is off-topic
+or done — keep the current model. An unparseable Arch reply falls back
+to `qwen`. Built-in route descriptions update on load when they still
+match a previous default; custom description text is left alone.
 
 ## Next
 

@@ -9,18 +9,49 @@ import (
 	"strings"
 
 	"quikagent/internal/llm"
+	"quikagent/internal/session"
 )
 
 const subagentMaxSteps = 20
+
+const (
+	reviewerPrefix = "You are a reviewer. Inspect the workspace (git diff if useful) and decide whether the assigned step was completed. Reply with PASS or FAIL and a short reason. Do not modify files.\n\n"
+	explorePrefix  = "You are an explore subagent. Only read and search; do not modify files.\n\n"
+	generalPrefix  = "You are a general-purpose subagent. Complete the assigned task and return a concise result.\n\n"
+)
 
 type customAgent struct {
 	ID       string
 	Prompt   string
 	ReadOnly bool
+	Model    string
 }
 
-func (a *Agent) runSubagent(ctx context.Context, agentID, prompt string) (string, error) {
-	kind := strings.ToLower(strings.TrimSpace(agentID))
+type subagentReq struct {
+	ID     string
+	Prompt string
+	Model  string
+	StepID string
+	Events chan<- Event
+}
+
+func (a *Agent) runSubagent(ctx context.Context, agentID, prompt, model string) (string, error) {
+	if model == "" && a.RouterEnabled() {
+		a.mu.RLock()
+		r := a.router
+		a.mu.RUnlock()
+		route, m, _, err := r.Select(ctx, prompt, "build")
+		if err == nil && route != "other" && m != "" {
+			model = m
+		} else {
+			model = a.coderModel()
+		}
+	}
+	return a.spawnSubagent(ctx, subagentReq{ID: agentID, Prompt: prompt, Model: model})
+}
+
+func (a *Agent) spawnSubagent(ctx context.Context, req subagentReq) (string, error) {
+	kind := strings.ToLower(strings.TrimSpace(req.ID))
 	if kind == "" {
 		kind = "general"
 	}
@@ -32,28 +63,34 @@ func (a *Agent) runSubagent(ctx context.Context, agentID, prompt string) (string
 	case "explore":
 		childTools = a.tools.ReadOnly()
 		mode = Plan
-		prefix = "You are an explore subagent. Only read and search; do not modify files.\n\n"
+		prefix = explorePrefix
+	case "reviewer":
+		childTools = a.tools.ReadOnly()
+		mode = Plan
+		prefix = reviewerPrefix
 	case "general":
-		prefix = "You are a general-purpose subagent. Complete the assigned task and return a concise result.\n\n"
+		prefix = generalPrefix
 	default:
 		def, ok := loadCustomAgent(a.opts.Workdir, kind)
 		if !ok {
-			return "", fmt.Errorf("unknown subagent %q (try explore or general)", kind)
+			return "", fmt.Errorf("unknown subagent %q (try explore, general, or reviewer)", kind)
 		}
 		prefix = def.Prompt + "\n\n"
 		if def.ReadOnly {
 			childTools = a.tools.ReadOnly()
 			mode = Plan
 		}
+		if req.Model == "" && def.Model != "" {
+			req.Model = def.Model
+		}
 	}
 
-	// Drop task from the child so it cannot recurse.
-	childTools = childTools.Without("task")
+	childTools = childTools.Without("task", "plan")
 
+	parentModel := a.Model()
 	child := New(a.llm, childTools, a.opts)
-	// New() re-adds task if missing; drop it again so children cannot recurse.
 	if child.tools != nil {
-		child.tools = child.tools.Without("task")
+		child.tools = child.tools.Without("task", "plan")
 	}
 	child.stepLimit = subagentMaxSteps
 	child.SetMode(mode)
@@ -64,23 +101,37 @@ func (a *Agent) runSubagent(ctx context.Context, agentID, prompt string) (string
 	a.mu.RUnlock()
 	child.SetTrace(fn)
 	child.SetTraceFrontend(fe)
+	if req.Model != "" {
+		child.setModel(req.Model, false)
+	}
 
 	ev := make(chan Event, 64)
-	go child.Run(ctx, prefix+prompt, ev)
+	go child.Run(ctx, prefix+req.Prompt, ev)
 	var last string
 	for e := range ev {
 		switch e.Type {
 		case EventText:
 			last += e.Text
+			if req.Events != nil {
+				req.Events <- e
+			}
+		case EventToolStart, EventToolDone, EventRoute, EventThinking, EventStatus:
+			if req.Events != nil {
+				req.Events <- e
+			}
 		case EventError:
+			a.setModel(parentModel, false)
 			if e.Err != nil {
 				return "", e.Err
 			}
 			return "", fmt.Errorf("subagent error")
 		}
 	}
+	a.setModel(parentModel, false)
+	if req.StepID != "" {
+		a.emitTrace(session.TraceRecord{Type: "dispatch", Name: kind, Model: req.Model, StepID: req.StepID})
+	}
 	if strings.TrimSpace(last) == "" {
-		// fall back to last assistant message
 		for _, m := range child.Messages() {
 			if m.Role == llm.RoleAssistant && m.Content != "" {
 				last = m.Content
@@ -173,6 +224,8 @@ func parseAgentMD(filename, body string) customAgent {
 			}
 		case "readonly", "read_only":
 			def.ReadOnly = v == "true" || v == "1" || v == "yes"
+		case "model":
+			def.Model = v
 		}
 	}
 	if p := strings.TrimSpace(leftover.String()); p != "" {

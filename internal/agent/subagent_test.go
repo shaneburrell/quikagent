@@ -19,7 +19,7 @@ func TestExploreSubagentReadOnly(t *testing.T) {
 		{text: "could not write"},
 	}}
 	a := newTestAgent(dir, fake)
-	out, err := a.runSubagent(t.Context(), "explore", "write a file")
+	out, err := a.runSubagent(t.Context(), "explore", "write a file", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ func TestSubagentGeneralRespectsAllowTool(t *testing.T) {
 		called = true
 		return fmt.Errorf("parent said no")
 	})
-	out, err := a.runSubagent(t.Context(), "general", "write a file")
+	out, err := a.runSubagent(t.Context(), "general", "write a file", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +60,7 @@ func TestSubagentGeneralRespectsAllowTool(t *testing.T) {
 
 func TestSubagentNilErrorIsError(t *testing.T) {
 	a := newTestAgent(t.TempDir(), &fakeLLM{scripts: []script{{nilErr: true}}})
-	_, err := a.runSubagent(t.Context(), "general", "hi")
+	_, err := a.runSubagent(t.Context(), "general", "hi", "")
 	if err == nil {
 		t.Fatal("expected error for EventError with nil Err")
 	}
@@ -71,7 +71,7 @@ func TestSubagentNilErrorIsError(t *testing.T) {
 
 func TestUnknownSubagent(t *testing.T) {
 	a := newTestAgent(t.TempDir(), &fakeLLM{})
-	_, err := a.runSubagent(t.Context(), "nope", "hi")
+	_, err := a.runSubagent(t.Context(), "nope", "hi", "")
 	if err == nil || !strings.Contains(err.Error(), "unknown subagent") {
 		t.Fatalf("err = %v", err)
 	}
@@ -81,9 +81,9 @@ func TestCustomAgentFrontmatter(t *testing.T) {
 	dir := t.TempDir()
 	ad := filepath.Join(dir, ".quikagent", "agents")
 	_ = os.MkdirAll(ad, 0o755)
-	_ = os.WriteFile(filepath.Join(ad, "reviewer.md"), []byte("---\nname: reviewer\nreadonly: true\n---\nOnly review.\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(ad, "reviewer.md"), []byte("---\nname: reviewer\nreadonly: true\nmodel: review-model\n---\nOnly review.\n"), 0o644)
 	def, ok := loadCustomAgent(dir, "reviewer")
-	if !ok || !def.ReadOnly || !strings.Contains(def.Prompt, "Only review") {
+	if !ok || !def.ReadOnly || def.Model != "review-model" || !strings.Contains(def.Prompt, "Only review") {
 		t.Fatalf("def = %+v ok=%v", def, ok)
 	}
 }

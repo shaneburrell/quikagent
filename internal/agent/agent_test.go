@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -19,11 +20,13 @@ import (
 
 // fakeLLM replays scripted responses and records each Chat call.
 type fakeLLM struct {
+	mu       sync.Mutex
 	scripts  []script
 	defs     [][]llm.Tool
 	requests [][]llm.Message
 	model    string
 	models   []string // model at each Chat
+	delay    time.Duration
 }
 
 type script struct {
@@ -36,23 +39,47 @@ type script struct {
 }
 
 func (f *fakeLLM) Model() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.model == "" {
 		return "fake"
 	}
 	return f.model
 }
 
-func (f *fakeLLM) SetModel(model string) { f.model = model }
+func (f *fakeLLM) SetModel(model string) {
+	f.mu.Lock()
+	f.model = model
+	f.mu.Unlock()
+}
 
 func (f *fakeLLM) Chat(ctx context.Context, messages []llm.Message, toolDefs []llm.Tool, maxTokens int) (<-chan llm.Event, error) {
+	return f.ChatAs(ctx, f.Model(), messages, toolDefs, maxTokens)
+}
+
+func (f *fakeLLM) ChatAs(ctx context.Context, model string, messages []llm.Message, toolDefs []llm.Tool, maxTokens int) (<-chan llm.Event, error) {
+	f.mu.Lock()
+	if model == "" {
+		if f.model == "" {
+			model = "fake"
+		} else {
+			model = f.model
+		}
+	}
 	f.requests = append(f.requests, append([]llm.Message(nil), messages...))
 	f.defs = append(f.defs, append([]llm.Tool(nil), toolDefs...))
-	f.models = append(f.models, f.Model())
+	f.models = append(f.models, model)
 	if len(f.scripts) == 0 {
+		f.mu.Unlock()
 		return nil, fmt.Errorf("fakeLLM exhausted")
 	}
 	s := f.scripts[0]
 	f.scripts = f.scripts[1:]
+	delay := f.delay
+	f.mu.Unlock()
+	if delay > 0 {
+		time.Sleep(delay)
+	}
 
 	ch := make(chan llm.Event, 16)
 	go func() {
@@ -248,7 +275,7 @@ func TestPlanModeLimitsTools(t *testing.T) {
 	for _, d := range defs {
 		names = append(names, d.Name)
 	}
-	want := map[string]bool{"read": true, "glob": true, "grep": true, "list": true, "fetch": true, "git": true, "question": true, "skill": true}
+	want := map[string]bool{"read": true, "glob": true, "grep": true, "list": true, "fetch": true, "git": true, "question": true, "skill": true, "plan": true}
 	for _, n := range names {
 		if !want[n] {
 			t.Fatalf("unexpected plan tool %q in %v", n, names)
@@ -500,16 +527,41 @@ func TestRouterFallbackSurfacesError(t *testing.T) {
 }
 
 type fakeRouter struct {
-	route, model string
-	err          error
-	calls        int
-	lastMode     string
+	mu                  sync.Mutex
+	route, model, coder string
+	err                 error
+	calls               int
+	lastMode            string
+	lastText            string
+	texts               []string
+	queue               []struct{ route, model string }
 }
 
 func (f *fakeRouter) Select(ctx context.Context, userText, mode string) (string, string, string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.calls++
 	f.lastMode = mode
+	f.lastText = userText
+	f.texts = append(f.texts, userText)
+	if len(f.queue) > 0 {
+		q := f.queue[0]
+		f.queue = f.queue[1:]
+		return q.route, q.model, "", f.err
+	}
 	return f.route, f.model, "", f.err
+}
+
+func (f *fakeRouter) RouteModel(name string) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if name == "coder" {
+		if f.coder != "" {
+			return f.coder
+		}
+		return "coder-model"
+	}
+	return ""
 }
 
 func TestNewDoesNotMutateCallerRegistry(t *testing.T) {
@@ -1128,6 +1180,72 @@ func TestQuestionBatchStaysSequential(t *testing.T) {
 	_ = collect(t, run(a, "go"))
 	if atomic.LoadInt32(&max) != 1 {
 		t.Fatalf("max in-flight = %d, want 1", max)
+	}
+}
+
+func TestHandoffGoRoutesToCoder(t *testing.T) {
+	fake := &fakeLLM{scripts: []script{{text: "here is a plan"}, {text: "on it"}}}
+	a := newTestAgent(t.TempDir(), fake)
+	r := &fakeRouter{route: "qwen", model: "qwen-routed", coder: "coder-model"}
+	a.SetRouter(r)
+	a.SetRouterEnabled(true)
+	a.SetMode(Plan)
+	collect(t, run(a, "plan a refactor"))
+	a.SetMode(Build)
+	r.route = "other"
+	r.model = ""
+	events := collect(t, run(a, "go"))
+	if r.lastMode != "handoff" {
+		t.Fatalf("router mode = %q, want handoff", r.lastMode)
+	}
+	var routed bool
+	for _, e := range events {
+		if e.Type == EventRoute && e.Name == "coder" && e.Model == "coder-model" {
+			routed = true
+		}
+	}
+	if !routed {
+		t.Fatalf("missing coder handoff route: %+v", events)
+	}
+}
+
+func TestThanksAfterPlanDoesNotForceCoder(t *testing.T) {
+	fake := &fakeLLM{scripts: []script{{text: "here is a plan"}, {text: "bye"}}}
+	a := newTestAgent(t.TempDir(), fake)
+	r := &fakeRouter{route: "qwen", model: "qwen-routed"}
+	a.SetRouter(r)
+	a.SetRouterEnabled(true)
+	a.SetMode(Plan)
+	collect(t, run(a, "plan a refactor"))
+	a.SetMode(Build)
+	r.route = "other"
+	r.model = ""
+	events := collect(t, run(a, "thanks, I'm done"))
+	if r.lastMode != "build" {
+		t.Fatalf("router mode = %q, want build", r.lastMode)
+	}
+	for _, e := range events {
+		if e.Type == EventRoute && e.Name == "coder" {
+			t.Fatalf("thanks should not force coder: %+v", events)
+		}
+	}
+}
+
+func TestPinnedModelSkipsOrchestrate(t *testing.T) {
+	fake := &fakeLLM{scripts: []script{{text: "one model"}}}
+	a := newTestAgent(t.TempDir(), fake)
+	a.SetRouter(&fakeRouter{route: "nano", model: "nano"})
+	a.SetRouterEnabled(true)
+	a.SetModel("pinned")
+	a.LoadPlan(tools.Plan{Steps: []tools.PlanStep{{ID: "a", Title: "scaffold", Status: "pending", Files: []string{"main.go"}}}})
+	events := collect(t, run(a, "go"))
+	for _, e := range events {
+		if e.Type == EventRoute && strings.Contains(e.Text, "dispatch") {
+			t.Fatalf("pinned should not dispatch: %+v", events)
+		}
+	}
+	if fake.models[0] != "pinned" {
+		t.Fatalf("models = %v", fake.models)
 	}
 }
 
