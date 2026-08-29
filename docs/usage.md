@@ -71,7 +71,7 @@ jq -s 'map(select(.type=="compact")) | length' ~/.quikagent/sessions/*.trace.jso
 `/clear`, `/sessions`, `/resume <id>`, `/compact`, `/refresh`, `/undo`,
 `/redo`, `/init`.
 
-- **`/plan`** / **`/build`** / **`/mode`** — switch tool surface (works during a turn). `/mode` with no argument toggles. Same as **Tab**. Plan turns still ask Arch-Router (with a plan-mode hint) unless `plan_model` is set, which skips Arch. A pinned `/model` still wins. Arch `other` keeps the current model.
+- **`/plan`** / **`/build`** / **`/mode`** — switch tool surface (works during a turn). `/mode` with no argument toggles. Same as **Tab**. Plan turns still ask Arch-Router (with a plan-and-design hint) unless `plan_model` is set, which skips Arch. A pinned `/model` still wins. Arch `other` is off-topic or done and keeps the current model.
 
 - **`/models`** — pick from API `/v1/models` (merged with config defaults); first row is **auto (Arch-Router)**.
 - **`/model auto`** / **F2** — enable per-turn routing; pinning a model disables it until auto again.

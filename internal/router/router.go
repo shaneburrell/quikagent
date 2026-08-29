@@ -111,7 +111,7 @@ func (r *Router) fallback() named {
 // FormatPrompt builds the Arch-Router user message.
 func FormatPrompt(routes map[string]config.RouteTarget, userText, mode string) (string, error) {
 	if strings.EqualFold(strings.TrimSpace(mode), "plan") {
-		userText = "The user is in plan mode (investigate and propose a plan; do not implement).\n\n" + userText
+		userText = "The user asked for a plan and design, not implementation.\n\n" + userText
 	}
 	type routeJSON struct {
 		Name        string `json:"name"`

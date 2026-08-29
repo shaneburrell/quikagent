@@ -53,6 +53,109 @@ func TestLoadDefaults(t *testing.T) {
 	}
 }
 
+func TestDefaultRoutesPolicyCopy(t *testing.T) {
+	r := DefaultRoutes()
+	if !strings.Contains(r["coder"].Description, "Implement or edit code right now") {
+		t.Fatalf("coder = %q", r["coder"].Description)
+	}
+	if !strings.Contains(r["qwen"].Description, "even if they said make, build, or implement") {
+		t.Fatalf("qwen = %q", r["qwen"].Description)
+	}
+	if !strings.Contains(r["other"].Description, "Off-topic chat") {
+		t.Fatalf("other = %q", r["other"].Description)
+	}
+	if strings.Contains(r["other"].Description, "Intent unclear") {
+		t.Fatal("other should not be an unclear-intent escape hatch")
+	}
+	if r["nano"].Description != routeDescNano {
+		t.Fatalf("nano = %q", r["nano"].Description)
+	}
+}
+
+func TestStaleRouteDescriptionsRefresh(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv(EnvAPIKey, "k")
+	t.Setenv(EnvBaseURL, "")
+	t.Setenv(EnvModel, "")
+	t.Setenv(EnvRouter, "")
+	t.Setenv(EnvProvider, "")
+	dir := filepath.Join(home, ".quikagent")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	body := "" +
+		"api_key: k\n" +
+		"router:\n" +
+		"  enabled: true\n" +
+		"  routes:\n" +
+		"    coder:\n" +
+		"      model: my-coder\n" +
+		"      description: \"Write, edit, refactor, or implement code: multi-file changes, tests, agentic coding loops\"\n" +
+		"    qwen:\n" +
+		"      model: my-qwen\n" +
+		"      description: \"Architecture and design tradeoffs, deep debugging of subtle failures, long analysis, vision and images — NOT routine write/edit/refactor/implement code\"\n" +
+		"    other:\n" +
+		"      model: my-other\n" +
+		"      description: \"Intent unclear — keep the coding model; do not switch to Qwen\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "config.yaml"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Router.Routes["coder"].Model != "my-coder" {
+		t.Fatalf("coder model overwritten: %+v", cfg.Router.Routes["coder"])
+	}
+	if cfg.Router.Routes["qwen"].Model != "my-qwen" {
+		t.Fatalf("qwen model overwritten: %+v", cfg.Router.Routes["qwen"])
+	}
+	if cfg.Router.Routes["coder"].Description != routeDescCoder {
+		t.Fatalf("coder desc = %q", cfg.Router.Routes["coder"].Description)
+	}
+	if cfg.Router.Routes["qwen"].Description != routeDescQwen {
+		t.Fatalf("qwen desc = %q", cfg.Router.Routes["qwen"].Description)
+	}
+	if cfg.Router.Routes["other"].Description != routeDescOther {
+		t.Fatalf("other desc = %q", cfg.Router.Routes["other"].Description)
+	}
+}
+
+func TestCustomRouteDescriptionPreserved(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv(EnvAPIKey, "k")
+	t.Setenv(EnvBaseURL, "")
+	t.Setenv(EnvModel, "")
+	t.Setenv(EnvRouter, "")
+	t.Setenv(EnvProvider, "")
+	dir := filepath.Join(home, ".quikagent")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	body := "" +
+		"api_key: k\n" +
+		"router:\n" +
+		"  routes:\n" +
+		"    qwen:\n" +
+		"      model: custom-qwen\n" +
+		"      description: \"Only for vision and screenshots\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "config.yaml"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Router.Routes["qwen"].Description != "Only for vision and screenshots" {
+		t.Fatalf("custom description rewritten: %q", cfg.Router.Routes["qwen"].Description)
+	}
+	if cfg.Router.Routes["qwen"].Model != "custom-qwen" {
+		t.Fatalf("qwen model = %q", cfg.Router.Routes["qwen"].Model)
+	}
+}
+
 func TestLoadYAMLThenEnvWins(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
