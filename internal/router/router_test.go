@@ -39,6 +39,15 @@ func TestFormatPromptContainsRoutes(t *testing.T) {
 	if !strings.Contains(p, "write a git commit message") {
 		t.Fatal("missing user text")
 	}
+	for _, want := range []string{
+		"Implement or edit code right now",
+		"Plan or design a system",
+		"Off-topic chat, thanks",
+	} {
+		if !strings.Contains(p, want) {
+			t.Fatalf("prompt missing route policy %q", want)
+		}
+	}
 }
 
 type fakeOnce struct {
@@ -87,14 +96,17 @@ func TestFormatPromptPlanPrefix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(plan, "plan mode") || !strings.Contains(plan, "lets plan a tool") {
+	if !strings.Contains(plan, "plan and design") || !strings.Contains(plan, "lets plan a tool") {
 		t.Fatalf("plan prompt = %s", plan[:min(300, len(plan))])
+	}
+	if strings.Contains(plan, "do not implement") {
+		t.Fatal("plan hint should not contradict implement-worded requests")
 	}
 	build, err := FormatPrompt(config.DefaultRoutes(), "lets plan a tool", "build")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(build, "The user is in plan mode") {
+	if strings.Contains(build, "plan and design") {
 		t.Fatal("build prompt should not include the plan-mode prefix")
 	}
 }

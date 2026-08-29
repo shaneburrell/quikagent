@@ -120,26 +120,77 @@ type Config struct {
 	LSP            LSPConfig
 }
 
+const (
+	routeDescNano  = "Trivial mechanical shell and git chores: commits, status, short one-off commands, titles"
+	routeDescCoder = "Implement or edit code right now: write files, refactor, tests. Not for planning or proposing a design."
+	routeDescQwen  = "Plan or design a system, feature, or architecture before coding. Use this when the user wants a proposal, tradeoffs, or a plan — even if they said make, build, or implement."
+	routeDescOther = "Off-topic chat, thanks, or the user said they are done. Not for coding or planning requests."
+)
+
 // DefaultRoutes returns the built-in Arch-Router route map.
 func DefaultRoutes() map[string]RouteTarget {
 	return map[string]RouteTarget{
 		"nano": {
 			Model:       DefaultSmallModel,
-			Description: "Trivial mechanical shell and git chores: commits, status, short one-off commands, titles",
+			Description: routeDescNano,
 		},
 		"coder": {
 			Model:       DefaultModel,
-			Description: "Write, edit, refactor, or implement code: multi-file changes, tests, agentic coding loops",
+			Description: routeDescCoder,
 		},
 		"qwen": {
 			Model:       DefaultModel,
-			Description: "Planning, proposing a design, architecture and design tradeoffs, deep debugging of subtle failures, long analysis, vision and images — NOT routine write/edit/refactor/implement code",
+			Description: routeDescQwen,
 		},
 		"other": {
 			Model:       DefaultModel,
-			Description: "Intent unclear — keep the current model; do not switch",
+			Description: routeDescOther,
 		},
 	}
+}
+
+// staleRouteDescriptions are previous built-in texts that Save() froze into
+// ~/.quikagent/config.yaml. Matching descriptions are replaced on load;
+// custom text is left alone.
+var staleRouteDescriptions = map[string][]string{
+	"coder": {
+		"Write, edit, refactor, or implement code: multi-file changes, tests, agentic coding loops",
+	},
+	"qwen": {
+		"Architecture and design tradeoffs, deep debugging of subtle failures, long analysis, vision and images — NOT routine write/edit/refactor/implement code",
+		"Planning, proposing a design, architecture and design tradeoffs, deep debugging of subtle failures, long analysis, vision and images — NOT routine write/edit/refactor/implement code",
+	},
+	"other": {
+		"Intent unclear — keep the current model; do not switch",
+		"Intent unclear — keep the coding model; do not switch to Qwen",
+	},
+}
+
+func refreshBuiltinRouteDescriptions(routes map[string]RouteTarget) {
+	if routes == nil {
+		return
+	}
+	defaults := DefaultRoutes()
+	for name, def := range defaults {
+		cur, ok := routes[name]
+		if !ok {
+			continue
+		}
+		if !staleBuiltinRouteDescription(name, cur.Description) {
+			continue
+		}
+		cur.Description = def.Description
+		routes[name] = cur
+	}
+}
+
+func staleBuiltinRouteDescription(name, desc string) bool {
+	for _, old := range staleRouteDescriptions[name] {
+		if desc == old {
+			return true
+		}
+	}
+	return false
 }
 
 // Dir returns ~/.quikagent, creating it if needed.
@@ -226,6 +277,7 @@ func Load(workdir string) (*Config, error) {
 	if len(cfg.Router.Routes) == 0 {
 		cfg.Router.Routes = DefaultRoutes()
 	}
+	refreshBuiltinRouteDescriptions(cfg.Router.Routes)
 	return cfg, nil
 }
 

@@ -48,10 +48,10 @@ router:
   enabled: true
   model: arch-router-1.5b
   routes:
-    nano:  { model: gpt-4o-mini, description: "Fast mechanical work…" }
-    coder: { model: gpt-4o, description: "Write and refactor code…" }
-    qwen:  { model: gpt-4o, description: "Planning, architecture, and deep debug…" }
-    other: { model: gpt-4o, description: "Unclear — keep the current model" }
+    nano:  { model: gpt-4o-mini, description: "Trivial mechanical shell and git chores…" }
+    coder: { model: gpt-4o, description: "Implement or edit code right now…" }
+    qwen:  { model: gpt-4o, description: "Plan or design a system before coding…" }
+    other: { model: gpt-4o, description: "Off-topic, thanks, or done" }
 mcpServers:
   demo:
     command: npx
@@ -112,10 +112,12 @@ control.
 Optional per-turn Arch-Router (OpenCode-compatible prompts). Built-in
 route keys: `nano`, `coder`, `qwen`, `other`. Enable via config,
 `QUIKAGENT_ROUTER=1`, `/router on`, `/model auto`, or `/models` → auto.
-Plan turns still route (Arch sees a plan-mode prefix) unless `plan_model`
-is set. Route `other` means keep the current model, not force coder.
-An unparseable Arch reply falls back to `qwen`. Suggested `qwen`
-description includes planning / proposing a design.
+Plan turns still route (Arch sees a “plan and design, not implementation”
+hint) unless `plan_model` is set. Route `other` is off-topic or done —
+keep the current model; it is not “avoid Qwen”. An unparseable Arch
+reply falls back to `qwen`. Built-in route descriptions update on load
+when they still match a previous default; custom description text is
+left alone.
 
 ## Next
 
