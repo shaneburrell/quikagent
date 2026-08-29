@@ -10,7 +10,8 @@ import (
 )
 
 // TaskFunc runs a named subagent with an isolated conversation.
-type TaskFunc func(ctx context.Context, agentID, prompt string) (string, error)
+// model is optional; empty means the runner picks (parent or Arch).
+type TaskFunc func(ctx context.Context, agentID, prompt, model string) (string, error)
 
 // TaskTool lets the model spawn a child agent.
 type TaskTool struct {
@@ -25,7 +26,7 @@ func (t *TaskTool) Spec() llm.Tool {
 	return llm.Tool{
 		Name:        "task",
 		Description: "Spawn a child agent for a focused subtask. agent is \"explore\" (read-only search) or \"general\" (can edit), or a custom name from .quikagent/agents/*.md. Returns the child's final answer.",
-		Parameters:  []byte(`{"type":"object","properties":{"agent":{"type":"string","description":"Subagent id: explore, general, or custom"},"prompt":{"type":"string","description":"Task for the child agent"}},"required":["prompt"]}`),
+		Parameters:  []byte(`{"type":"object","properties":{"agent":{"type":"string","description":"Subagent id: explore, general, reviewer, or custom"},"prompt":{"type":"string","description":"Task for the child agent"},"model":{"type":"string","description":"Optional chat model for the child"}},"required":["prompt"]}`),
 	}
 }
 
@@ -33,6 +34,7 @@ func (t *TaskTool) Run(ctx context.Context, args json.RawMessage) (string, error
 	var a struct {
 		Agent  string `json:"agent"`
 		Prompt string `json:"prompt"`
+		Model  string `json:"model"`
 	}
 	if err := json.Unmarshal(args, &a); err != nil {
 		return "", errInvalidArg(err.Error())
@@ -47,7 +49,7 @@ func (t *TaskTool) Run(ctx context.Context, args json.RawMessage) (string, error
 	if t.run == nil {
 		return "", fmt.Errorf("task: no subagent runner")
 	}
-	out, err := t.run(ctx, a.Agent, a.Prompt)
+	out, err := t.run(ctx, a.Agent, a.Prompt, strings.TrimSpace(a.Model))
 	if err != nil {
 		return "", err
 	}

@@ -222,6 +222,7 @@ func run(print string, cont bool, sessionID string, plan bool, webListen string,
 	if sess.SkippedCorrupt > 0 {
 		fmt.Fprintf(os.Stderr, "warning: skipped %d corrupt session line(s)\n", sess.SkippedCorrupt)
 	}
+	agent.BindSessionPlan(ag, sess)
 
 	if webListen != "" {
 		addr, err := normalizeWebAddr(webListen, webListenAll)

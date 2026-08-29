@@ -61,7 +61,7 @@ func TestDefaultRoutesPolicyCopy(t *testing.T) {
 	if !strings.Contains(r["qwen"].Description, "even if they said make, build, or implement") {
 		t.Fatalf("qwen = %q", r["qwen"].Description)
 	}
-	if !strings.Contains(r["other"].Description, "Off-topic chat") {
+	if !strings.Contains(r["other"].Description, "Off-topic chat or thanks") {
 		t.Fatalf("other = %q", r["other"].Description)
 	}
 	if strings.Contains(r["other"].Description, "Intent unclear") {

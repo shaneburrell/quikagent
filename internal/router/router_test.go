@@ -42,7 +42,7 @@ func TestFormatPromptContainsRoutes(t *testing.T) {
 	for _, want := range []string{
 		"Implement or edit code right now",
 		"Plan or design a system",
-		"Off-topic chat, thanks",
+		"Off-topic chat or thanks",
 	} {
 		if !strings.Contains(p, want) {
 			t.Fatalf("prompt missing route policy %q", want)
@@ -135,6 +135,47 @@ func TestSelectOtherDoesNotSwitch(t *testing.T) {
 	}
 	if route != "other" || model != "" {
 		t.Fatalf("route=%s model=%q (want empty model)", route, model)
+	}
+}
+
+func TestFormatPromptHandoffPrefix(t *testing.T) {
+	p, err := FormatPrompt(config.DefaultRoutes(), "go", "handoff")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(p, ImplementHint) || !strings.Contains(p, "go") {
+		t.Fatalf("handoff prompt = %s", p[:min(300, len(p))])
+	}
+	build, err := FormatPrompt(config.DefaultRoutes(), "go", "build")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(build, ImplementHint) {
+		t.Fatal("plain build should not include the implement hint")
+	}
+}
+
+func TestSelectHandoffOtherUsesCoder(t *testing.T) {
+	f := &fakeOnce{content: `{"route":"other"}`}
+	r := New(f, config.RouterConfig{Routes: config.DefaultRoutes()})
+	route, model, _, err := r.Select(context.Background(), "go", "handoff")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if route != "coder" || model != config.DefaultModel {
+		t.Fatalf("route=%s model=%s", route, model)
+	}
+}
+
+func TestSelectHandoffThanksStaysOtherOnBuild(t *testing.T) {
+	f := &fakeOnce{content: `{"route":"other"}`}
+	r := New(f, config.RouterConfig{Routes: config.DefaultRoutes()})
+	route, model, _, err := r.Select(context.Background(), "thanks, I'm done", "build")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if route != "other" || model != "" {
+		t.Fatalf("route=%s model=%q", route, model)
 	}
 }
 

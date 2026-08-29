@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -24,6 +25,7 @@ type Client struct {
 	apiKey  string
 	model   string
 	http    *http.Client
+	mu      sync.RWMutex
 }
 
 // New builds a Client. baseURL should include the API prefix, e.g.
@@ -38,13 +40,20 @@ func New(baseURL, apiKey, model string) *Client {
 }
 
 // Model returns the configured model name.
-func (c *Client) Model() string { return c.model }
+func (c *Client) Model() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.model
+}
 
 // SetModel updates the model used for subsequent Chat calls.
 func (c *Client) SetModel(model string) {
-	if model != "" {
-		c.model = model
+	if model == "" {
+		return
 	}
+	c.mu.Lock()
+	c.model = model
+	c.mu.Unlock()
 }
 
 // SetAPIKey updates the bearer token used for subsequent Chat calls.
@@ -106,12 +115,20 @@ func (c *Client) ListModels(ctx context.Context) ([]string, error) {
 // error covers request setup only. Transient failures (429, 5xx, transport)
 // are retried before any stream tokens are emitted.
 func (c *Client) Chat(ctx context.Context, messages []Message, tools []Tool, maxTokens int) (<-chan Event, error) {
+	return c.ChatAs(ctx, c.Model(), messages, tools, maxTokens)
+}
+
+// ChatAs is Chat with an explicit model (empty uses the client default).
+func (c *Client) ChatAs(ctx context.Context, model string, messages []Message, tools []Tool, maxTokens int) (<-chan Event, error) {
+	if model == "" {
+		model = c.Model()
+	}
 	toolDefs, err := toWireToolDefs(tools)
 	if err != nil {
 		return nil, fmt.Errorf("encode tools: %w", err)
 	}
 	body, err := json.Marshal(wireRequest{
-		Model:     c.model,
+		Model:     model,
 		Stream:    true,
 		MaxTokens: maxTokens,
 		Messages:  toWireMessages(messages),

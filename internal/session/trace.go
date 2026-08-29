@@ -36,6 +36,7 @@ type TraceRecord struct {
 	Before       int    `json:"before,omitempty"`
 	After        int    `json:"after,omitempty"`
 	Steps        int    `json:"steps,omitempty"`
+	StepID       string `json:"step_id,omitempty"`
 }
 
 // BoolPtr is a helper for the optional ok field.

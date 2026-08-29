@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"quikagent/internal/session"
+	"quikagent/internal/tools"
 )
 
 // TraceFunc receives one loop fact. Nil is a no-op (tests).
@@ -30,6 +31,17 @@ func BindSessionTrace(a *Agent, sess *session.Session, frontend string) {
 	}
 	a.SetTraceFrontend(frontend)
 	a.SetTrace(func(r session.TraceRecord) { _ = sess.AppendTrace(r) })
+}
+
+// BindSessionPlan loads a plan sidecar and persists later updates.
+func BindSessionPlan(a *Agent, sess *session.Session) {
+	if a == nil || sess == nil {
+		return
+	}
+	if p, err := sess.LoadPlan(); err == nil {
+		a.LoadPlan(p)
+	}
+	a.SetOnPlan(func(p tools.Plan) { _ = sess.SavePlan(p) })
 }
 
 func (a *Agent) emitTrace(r session.TraceRecord) {

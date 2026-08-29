@@ -469,7 +469,7 @@ func TestRegistryReadOnly(t *testing.T) {
 	for _, s := range r.List() {
 		names = append(names, s.Name)
 	}
-	if strings.Join(names, ",") != "read,glob,grep,list,fetch,git,question" {
+	if strings.Join(names, ",") != "read,glob,grep,list,fetch,git,plan,question" {
 		t.Fatalf("read-only tools = %v", names)
 	}
 	if _, ok := r.Get("bash"); ok {

@@ -47,11 +47,11 @@ func systemPrompt(opts Options, mode Mode) string {
 	fmt.Fprintf(&b, "- Date: %s\n", time.Now().Format("2006-01-02"))
 	fmt.Fprintf(&b, "- Model: %s\n\n", opts.Model)
 	if mode == Plan {
-		b.WriteString("# Plan mode\nYou are in plan mode. Do NOT modify anything: you only have read-only tools (read, glob, grep, list, fetch, git, question, skill, and websearch or lsp if configured). Investigate, then propose a concrete step-by-step plan. Do not write to files.\nIf the user asks you to implement or go ahead, tell them to press Tab or type /build to leave plan mode. Do not pretend to write files.\nDo not call skill unless the name is listed in the skill tool description. If none are listed, skip skill.\nAfter a short investigate (list, read, git, grep), write the plan and stop. Do not call more tools after the plan.\nAt most two question calls, and only for real product choices (name, stack). Never ask permission to implement. Never start implementing.\n\n")
+		b.WriteString("# Plan mode\nYou are in plan mode. Do NOT modify anything: you only have read-only tools (read, glob, grep, list, fetch, git, question, skill, plan, and websearch or lsp if configured). Investigate, then propose a concrete step-by-step plan. Do not write to files.\nIf the user asks you to implement or go ahead, tell them to press Tab or type /build to leave plan mode. Do not pretend to write files.\nDo not call skill unless the name is listed in the skill tool description. If none are listed, skip skill.\nAfter a short investigate (list, read, git, grep), call the plan tool with concrete steps (id, title, detail, files, deps), then write the plan and stop. Do not call more tools after the plan.\nAt most two question calls, and only for real product choices (name, stack). Never ask permission to implement. Never start implementing.\n\n")
 	}
 	b.WriteString("# Guidelines\n")
 	if mode == Plan {
-		b.WriteString("- Use the read-only tools to investigate; then propose a concrete plan.\n")
+		b.WriteString("- Use the read-only tools to investigate; then record steps with the plan tool and propose a concrete plan.\n")
 		b.WriteString("- Keep replies concise; this is a terminal, not an essay.\n")
 		b.WriteString("- If a task is ambiguous, state your assumption briefly and proceed.\n")
 		b.WriteString("- Write the plan and stop; do not keep asking questions or calling tools.\n")

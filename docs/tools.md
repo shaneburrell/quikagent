@@ -22,6 +22,7 @@ Registered by default:
 | `fetch` | HTTP GET (public URLs; blocks private/loopback) | yes |
 | `git` | Git in the workdir | yes |
 | `todo` | In-session todo list | no |
+| `plan` | Structured plan steps (id, title, detail, files, deps) | yes |
 | `question` | Ask the user a structured question | yes |
 | `apply_patch` | Multi-file patch | no |
 
@@ -30,7 +31,7 @@ Registered by default:
 | Tool | When | Plan |
 |------|------|------|
 | `skill` | Always available once the agent starts (loads `SKILL.md`; advertises installed names) | yes |
-| `task` | Spawns a child agent (`explore`, `general`, or custom) | no |
+| `task` | Spawns a child agent (`explore`, `general`, `reviewer`, or custom). Optional `model` pins the child. | no |
 | `websearch` | `websearch_url` / `QUIKAGENT_WEBSEARCH_URL` | yes |
 | `lsp` | `lsp.command` set | yes |
 | `mcp_<name>_<tool>` | Each tool from a configured MCP server | no |

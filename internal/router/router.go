@@ -62,10 +62,14 @@ func New(c Completer, cfg config.RouterConfig) *Router {
 	return &Router{completer: c, cfg: cfg}
 }
 
+// ImplementHint is prepended to the Arch conversation on a plan→build handoff.
+const ImplementHint = "The user approved the plan and wants it implemented now."
+
 // Select asks Arch-Router which route fits userText and returns
-// (routeName, chatModel, raw). mode is "plan" or "build". On ChatOnce
-// failure or an unparseable reply it returns ("qwen", qwen model).
-// Explicit route "other" returns model "" so the caller keeps the current model.
+// (routeName, chatModel, raw). mode is "plan", "build", or "handoff".
+// On ChatOnce failure or an unparseable reply it returns ("qwen", qwen model).
+// Explicit route "other" returns model "" so the caller keeps the current model,
+// except mode "handoff", which maps "other" to the coder route.
 func (r *Router) Select(ctx context.Context, userText, mode string) (route, model, raw string, err error) {
 	fallback := r.fallback()
 	if strings.TrimSpace(userText) == "" {
@@ -87,6 +91,11 @@ func (r *Router) Select(ctx context.Context, userText, mode string) (route, mode
 		return fallback.route, fallback.model, raw, nil
 	}
 	if route == "other" {
+		if strings.EqualFold(strings.TrimSpace(mode), "handoff") {
+			if m := r.RouteModel("coder"); m != "" {
+				return "coder", m, raw, nil
+			}
+		}
 		return "other", "", raw, nil
 	}
 	target, ok := r.cfg.Routes[route]
@@ -94,6 +103,17 @@ func (r *Router) Select(ctx context.Context, userText, mode string) (route, mode
 		return fallback.route, fallback.model, raw, nil
 	}
 	return route, target.Model, raw, nil
+}
+
+// RouteModel returns the chat model configured for a route name.
+func (r *Router) RouteModel(name string) string {
+	if r == nil {
+		return ""
+	}
+	if t, ok := r.cfg.Routes[name]; ok {
+		return t.Model
+	}
+	return ""
 }
 
 type named struct{ route, model string }
@@ -110,8 +130,11 @@ func (r *Router) fallback() named {
 
 // FormatPrompt builds the Arch-Router user message.
 func FormatPrompt(routes map[string]config.RouteTarget, userText, mode string) (string, error) {
-	if strings.EqualFold(strings.TrimSpace(mode), "plan") {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "plan":
 		userText = "The user asked for a plan and design, not implementation.\n\n" + userText
+	case "handoff":
+		userText = ImplementHint + "\n\n" + userText
 	}
 	type routeJSON struct {
 		Name        string `json:"name"`
