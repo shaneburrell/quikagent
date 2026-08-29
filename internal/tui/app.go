@@ -60,6 +60,7 @@ type App struct {
 	scroll        int
 	sidebarScroll int
 	busy          bool
+	phase         string
 	follow        bool
 	hasNew        bool
 	sidebarOn     bool
@@ -230,6 +231,7 @@ func (a *App) ReplayHistory(msgs []llm.Message) {
 	// Replay is historical: no tool should keep spinning, and thinking
 	// should not stay expanded as if it were still streaming.
 	a.model.closeOpenTools()
+	a.model.clearWait()
 	a.model.collapseFinishedThinking()
 }
 
@@ -1286,13 +1288,24 @@ func (a *App) handleEvent(e agent.Event) {
 	case agent.EventRoute:
 		a.route = e.Name
 		a.model.Note(fmt.Sprintf("route: %s → %s", e.Name, e.Model))
+	case agent.EventStatus:
+		name := e.Name
+		if name == "" {
+			name = e.Text
+		}
+		a.phase = name
+		a.model.Status(name)
+		a.markStreamUpdate()
 	case agent.EventText:
+		a.phase = ""
 		a.model.Text(e.Text)
 		a.markStreamUpdate()
 	case agent.EventThinking:
+		a.phase = ""
 		a.model.Thinking(e.Text)
 		a.markStreamUpdate()
 	case agent.EventToolStart:
+		a.phase = ""
 		a.model.ToolStart(e.Name, e.Args)
 		a.markStreamUpdate()
 	case agent.EventToolDone:
@@ -1466,6 +1479,8 @@ func (a *App) syncSession() {
 
 func (a *App) endTurn() {
 	a.busy = false
+	a.phase = ""
+	a.model.clearWait()
 	if a.ticker != nil {
 		a.ticker.Stop()
 	}
@@ -1742,7 +1757,7 @@ func (a *App) render() {
 		Auto: a.agent.RouterEnabled(), Pin: a.agent.ModelPinned(),
 		SessionID: shortID(a.sess.ID),
 		Prompt:    a.usage.Prompt, Completion: a.usage.Completion,
-		Busy: a.busy, Spinner: a.model.spinner, Width: a.width,
+		Busy: a.busy, Phase: a.phase, Spinner: a.model.spinner, Width: a.width,
 		ScrollHint: scrollHint, HasNew: a.hasNew && !a.follow,
 	}))
 	a.renderer.Render(frame)

@@ -13,6 +13,7 @@ import (
 type Options struct {
 	Workdir   string
 	Model     string
+	PlanModel string // optional; used for plan-mode turns when set
 	MaxTokens int
 }
 

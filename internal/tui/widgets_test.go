@@ -103,6 +103,38 @@ func TestThinkingCollapsesAfterNextBlock(t *testing.T) {
 	}
 }
 
+func TestModelWaitLifecycle(t *testing.T) {
+	m := NewModel()
+	m.SetWidth(80)
+	m.Status("waiting")
+	joined := strings.Join(rowTexts(m.Rows()), "\n")
+	if !strings.Contains(joined, "waiting") {
+		t.Fatalf("wait card missing: %q", joined)
+	}
+	m.Status("routing")
+	joined = strings.Join(rowTexts(m.Rows()), "\n")
+	if strings.Contains(joined, "waiting") || !strings.Contains(joined, "routing") {
+		t.Fatalf("upsert should replace wait card: %q", joined)
+	}
+	m.Text("hello")
+	joined = strings.Join(rowTexts(m.Rows()), "\n")
+	if strings.Contains(joined, "routing") || strings.Contains(joined, "waiting") {
+		t.Fatalf("text should clear wait card: %q", joined)
+	}
+	m.Status("waiting")
+	m.Thinking("hmm")
+	joined = strings.Join(rowTexts(m.Rows()), "\n")
+	if strings.Contains(joined, "waiting") {
+		t.Fatalf("thinking should clear wait card: %q", joined)
+	}
+	m.Status("waiting")
+	m.ToolStart("bash", `{"command":"ls"}`)
+	joined = strings.Join(rowTexts(m.Rows()), "\n")
+	if strings.Contains(joined, "waiting") {
+		t.Fatalf("tool start should clear wait card: %q", joined)
+	}
+}
+
 func TestStatusHasNewHint(t *testing.T) {
 	row := StatusRowOpts(StatusOpts{Mode: "build", Model: "m", Width: 80, HasNew: true})
 	var b strings.Builder
@@ -192,6 +224,14 @@ func TestStatusRow(t *testing.T) {
 	}
 	if !strings.Contains(b2.String(), "working…") {
 		t.Fatalf("busy status = %q", b2.String())
+	}
+	row = StatusRowOpts(StatusOpts{Mode: "build", Model: "m", Busy: true, Phase: "waiting", Spinner: 0, Width: 80})
+	var b3 strings.Builder
+	for _, s := range row.Segs {
+		b3.WriteString(s.Text)
+	}
+	if !strings.Contains(b3.String(), "waiting…") || strings.Contains(b3.String(), "working…") {
+		t.Fatalf("phase status = %q", b3.String())
 	}
 }
 

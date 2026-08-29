@@ -18,6 +18,8 @@ type fakeLLM struct {
 	scripts  []script
 	defs     [][]llm.Tool
 	requests [][]llm.Message
+	model    string
+	models   []string // model at each Chat
 }
 
 type script struct {
@@ -29,13 +31,19 @@ type script struct {
 	nilErr    bool
 }
 
-func (f *fakeLLM) Model() string { return "fake" }
+func (f *fakeLLM) Model() string {
+	if f.model == "" {
+		return "fake"
+	}
+	return f.model
+}
 
-func (f *fakeLLM) SetModel(model string) {}
+func (f *fakeLLM) SetModel(model string) { f.model = model }
 
 func (f *fakeLLM) Chat(ctx context.Context, messages []llm.Message, toolDefs []llm.Tool, maxTokens int) (<-chan llm.Event, error) {
 	f.requests = append(f.requests, append([]llm.Message(nil), messages...))
 	f.defs = append(f.defs, append([]llm.Tool(nil), toolDefs...))
+	f.models = append(f.models, f.Model())
 	if len(f.scripts) == 0 {
 		return nil, fmt.Errorf("fakeLLM exhausted")
 	}
@@ -431,9 +439,11 @@ func TestRouterFallbackSurfacesError(t *testing.T) {
 type fakeRouter struct {
 	route, model string
 	err          error
+	calls        int
 }
 
 func (f *fakeRouter) Select(ctx context.Context, userText string) (string, string, error) {
+	f.calls++
 	return f.route, f.model, f.err
 }
 
@@ -730,6 +740,108 @@ func TestTodoToolEmitsEvent(t *testing.T) {
 	got := a.Todos()
 	if len(got) != 2 || got[1].Content != "ship" {
 		t.Fatalf("agent todos = %+v", got)
+	}
+}
+
+func TestRunEmitsWaitingStatus(t *testing.T) {
+	fake := &fakeLLM{scripts: []script{{text: "ok"}}}
+	a := newTestAgent(t.TempDir(), fake)
+	events := collect(t, run(a, "hi"))
+	if len(events) < 2 || events[0].Type != EventStatus || events[0].Name != "waiting" {
+		t.Fatalf("first event = %+v", events)
+	}
+	var sawText bool
+	for _, e := range events {
+		if e.Type == EventText {
+			sawText = true
+			break
+		}
+	}
+	if !sawText {
+		t.Fatalf("missing text after status: %+v", events)
+	}
+}
+
+func TestRouterEmitsRoutingStatus(t *testing.T) {
+	fake := &fakeLLM{scripts: []script{{text: "done"}}}
+	a := newTestAgent(t.TempDir(), fake)
+	a.SetRouter(&fakeRouter{route: "nano", model: "nemotron-nano-q4"})
+	a.SetRouterEnabled(true)
+	events := collect(t, run(a, "commit"))
+	if len(events) < 1 || events[0].Type != EventStatus || events[0].Name != "routing" {
+		t.Fatalf("first event = %+v", events)
+	}
+}
+
+func TestPlanModeUsesPlanModel(t *testing.T) {
+	fake := &fakeLLM{scripts: []script{{text: "here is a plan"}}}
+	a := newTestAgent(t.TempDir(), fake)
+	r := &fakeRouter{route: "coder", model: "should-not-use"}
+	a.SetRouter(r)
+	a.SetRouterEnabled(true)
+	a.SetPlanModel("qwen-plan")
+	a.SetMode(Plan)
+	events := collect(t, run(a, "plan a refactor"))
+	if r.calls != 0 {
+		t.Fatalf("router calls = %d, want 0", r.calls)
+	}
+	if len(fake.models) == 0 || fake.models[0] != "qwen-plan" {
+		t.Fatalf("chat models = %v", fake.models)
+	}
+	var routed bool
+	for _, e := range events {
+		if e.Type == EventRoute && e.Name == "plan" && e.Model == "qwen-plan" {
+			routed = true
+		}
+	}
+	if !routed {
+		t.Fatalf("missing plan route event: %+v", events)
+	}
+	if a.Model() != "fake" {
+		t.Fatalf("model after turn = %s, want restored fake", a.Model())
+	}
+}
+
+func TestPlanModeWithoutPlanModelStillRoutes(t *testing.T) {
+	fake := &fakeLLM{scripts: []script{{text: "plan"}}}
+	a := newTestAgent(t.TempDir(), fake)
+	r := &fakeRouter{route: "qwen", model: "qwen-routed"}
+	a.SetRouter(r)
+	a.SetRouterEnabled(true)
+	a.SetMode(Plan)
+	events := collect(t, run(a, "plan a refactor"))
+	if r.calls != 1 {
+		t.Fatalf("router calls = %d, want 1", r.calls)
+	}
+	var routed bool
+	for _, e := range events {
+		if e.Type == EventRoute && e.Name == "qwen" && e.Model == "qwen-routed" {
+			routed = true
+		}
+	}
+	if !routed {
+		t.Fatalf("events = %+v", events)
+	}
+}
+
+func TestPinnedModelOverridesPlanModel(t *testing.T) {
+	fake := &fakeLLM{scripts: []script{{text: "ok"}}}
+	a := newTestAgent(t.TempDir(), fake)
+	r := &fakeRouter{route: "coder", model: "routed"}
+	a.SetRouter(r)
+	a.SetRouterEnabled(true)
+	a.SetModel("pinned-model")
+	a.SetPlanModel("qwen-plan")
+	a.SetMode(Plan)
+	collect(t, run(a, "plan a refactor"))
+	if r.calls != 0 {
+		t.Fatalf("router calls = %d, want 0", r.calls)
+	}
+	if len(fake.models) == 0 || fake.models[0] != "pinned-model" {
+		t.Fatalf("chat models = %v", fake.models)
+	}
+	if a.Model() != "pinned-model" {
+		t.Fatalf("model = %s", a.Model())
 	}
 }
 

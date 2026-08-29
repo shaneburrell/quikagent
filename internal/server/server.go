@@ -638,6 +638,10 @@ func encodeEvent(e agent.Event) ([]byte, error) {
 		for _, td := range e.Todos {
 			w.Todos = append(w.Todos, wireTodo{Content: td.Content, Status: td.Status, Priority: td.Priority})
 		}
+	case agent.EventStatus:
+		w.Type = "status"
+		w.Name = e.Name
+		w.Text = e.Text
 	default:
 		w.Type = "unknown"
 	}
@@ -721,7 +725,7 @@ const sendBtn = document.getElementById('send');
 const banner = document.getElementById('banner');
 let mode = 'build';
 let busy = false;
-let curText = null, curThink = null;
+let curText = null, curThink = null, curStatus = null;
 function setBusy(on) {
   busy = on;
   sendBtn.disabled = on;
@@ -737,7 +741,11 @@ function append(cls, text) {
   log.scrollTop = log.scrollHeight;
   return d;
 }
+function clearStatus() {
+  if (curStatus) { curStatus.remove(); curStatus = null; }
+}
 function appendDelta(kind, text) {
+  clearStatus();
   if (kind === 'text') {
     curThink = null;
     if (!curText) curText = append('', '');
@@ -861,11 +869,18 @@ function handleEvent(e) {
   switch (e.type) {
     case 'thinking': appendDelta('think', e.text); break;
     case 'text': appendDelta('text', e.text); break;
+    case 'status':
+      clearStatus();
+      curStatus = append('tool', '… ' + (e.text || e.name || 'waiting'));
+      break;
     case 'route':
       append('think', 'route ' + e.name + ' → ' + e.model + (e.text ? ' (' + e.text + ')' : ''));
       document.getElementById('meta').textContent = 'session {{SESSION}} · route ' + e.name;
       break;
-    case 'tool_start': append('tool', '⏺ ' + e.name + ' ' + argSummary(e.args || '')); break;
+    case 'tool_start':
+      clearStatus();
+      append('tool', '⏺ ' + e.name + ' ' + argSummary(e.args || ''));
+      break;
     case 'tool_done': {
       const out = e.output || '';
       const cls = out.indexOf('Error:') === 0 ? 'err' : 'tool';
@@ -873,11 +888,13 @@ function handleEvent(e) {
       break;
     }
     case 'turn_done':
+      clearStatus();
       curText = curThink = null;
       setBusy(false);
       append('note', e.prompt_tokens || e.completion_tokens ? ('— ↑' + (e.prompt_tokens||0) + ' ↓' + (e.completion_tokens||0)) : '—');
       break;
     case 'error':
+      clearStatus();
       setBusy(false);
       if ((e.error || '').indexOf('context canceled') >= 0) append('note', 'cancelled');
       else append('err', '✗ ' + e.error);

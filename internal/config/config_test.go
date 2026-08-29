@@ -243,15 +243,49 @@ func TestLoadLegacyJSON(t *testing.T) {
 	}
 }
 
+func TestLoadPlanModelYAMLAndEnv(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv(EnvAPIKey, "k")
+	t.Setenv(EnvBaseURL, "")
+	t.Setenv(EnvModel, "")
+	t.Setenv(EnvRouter, "")
+	t.Setenv(EnvPlanModel, "")
+	dir := filepath.Join(home, ".quikagent")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	body := "api_key: k\nmodel: coder\nplan_model: qwen-plan\n"
+	if err := os.WriteFile(filepath.Join(dir, "config.yaml"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.PlanModel != "qwen-plan" {
+		t.Fatalf("PlanModel = %q", cfg.PlanModel)
+	}
+	t.Setenv(EnvPlanModel, "env-plan")
+	cfg, err = Load(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.PlanModel != "env-plan" {
+		t.Fatalf("env should win, PlanModel = %q", cfg.PlanModel)
+	}
+}
+
 func TestKnownModels(t *testing.T) {
 	cfg := &Config{
 		Model:      DefaultModel,
 		SmallModel: DefaultSmallModel,
+		PlanModel:  "plan-model",
 		Router:     RouterConfig{Routes: DefaultRoutes()},
 	}
 	got := KnownModels(cfg, []string{"extra-model", DefaultModel})
 	joined := strings.Join(got, ",")
-	if !strings.Contains(joined, DefaultModel) || !strings.Contains(joined, DefaultSmallModel) || !strings.Contains(joined, "extra-model") {
+	if !strings.Contains(joined, DefaultModel) || !strings.Contains(joined, DefaultSmallModel) || !strings.Contains(joined, "plan-model") || !strings.Contains(joined, "extra-model") {
 		t.Fatalf("%v", got)
 	}
 	if got[0] != DefaultModel {

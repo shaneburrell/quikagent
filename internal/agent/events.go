@@ -17,14 +17,15 @@ const (
 	EventError                      // turn failed; Err is set
 	EventRoute                      // Arch-Router selected a model for this turn
 	EventTodos                      // todo list updated
+	EventStatus                     // pre-stream phase (waiting, routing, compacting)
 )
 
 // Event is one item in the agent's output stream.
 type Event struct {
 	Type   EventType
-	Text   string     // EventText, EventThinking
+	Text   string     // EventText, EventThinking, EventStatus (label)
 	Output string     // EventToolDone
-	Name   string     // EventToolStart, EventToolDone, EventRoute (route name)
+	Name   string     // EventToolStart, EventToolDone, EventRoute (route name), EventStatus (phase)
 	Args   string     // EventToolStart (raw JSON)
 	Model  string     // EventRoute (selected chat model)
 	Usage  *llm.Usage // EventTurnDone

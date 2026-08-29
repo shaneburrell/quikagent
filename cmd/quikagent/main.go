@@ -169,6 +169,7 @@ func run(print string, cont bool, sessionID string, plan bool, webListen string,
 	ag := agent.New(client, registry, agent.Options{
 		Workdir:   workdir,
 		Model:     cfg.Model,
+		PlanModel: cfg.PlanModel,
 		MaxTokens: cfg.MaxTokens,
 	})
 
@@ -358,6 +359,14 @@ func runPrint(ag *agent.Agent, sess *session.Session, prompt string, autoYes boo
 				fmt.Fprintf(os.Stderr, "route=%s model=%s (router fallback: %s)\n", e.Name, e.Model, e.Text)
 			} else {
 				fmt.Fprintf(os.Stderr, "route=%s model=%s\n", e.Name, e.Model)
+			}
+		case agent.EventStatus:
+			label := e.Text
+			if label == "" {
+				label = e.Name
+			}
+			if label != "" {
+				fmt.Fprintln(os.Stderr, label+"…")
 			}
 		case agent.EventThinking:
 			fmt.Fprint(os.Stderr, e.Text)
