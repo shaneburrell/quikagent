@@ -54,7 +54,7 @@ func (r *Renderer) Render(rows []Row) {
 	grid := r.normalize(rows)
 
 	var buf strings.Builder
-	for y := 0; y < r.h; y++ {
+	for y := range r.h {
 		off := y * r.w
 		x := 0
 		for x < r.w {
@@ -83,7 +83,7 @@ func (r *Renderer) Render(rows []Row) {
 		}
 	}
 	if buf.Len() > 0 {
-		r.out.Write([]byte(buf.String()))
+		_, _ = r.out.Write([]byte(buf.String()))
 	}
 }
 
@@ -94,7 +94,7 @@ func (r *Renderer) normalize(rows []Row) []cell {
 	for i := range grid {
 		grid[i] = cell{r: ' ', a: bg}
 	}
-	for y := 0; y < r.h; y++ {
+	for y := range r.h {
 		var row Row
 		if y < len(rows) {
 			row = rows[y]

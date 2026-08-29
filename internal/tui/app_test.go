@@ -56,16 +56,8 @@ func TestClipNoteRuneSafe(t *testing.T) {
 		t.Errorf("clipNote should truncate to 10 runes, got %d", len([]rune(result)))
 	}
 
-	// Test that we don't get a partial rune at the end
-	// This is hard to test perfectly since we don't know exactly what gets cut off,
-	// but make sure it doesn't contain invalid UTF-8
-	if result != "Hello 世界 🌍" && len(result) < len(testString) {
-		// Should have been truncated, and the truncation should be at a valid rune boundary
-		// If the original string is longer than 10 runes, it should be truncated
-		r := []rune(result)
-		if len(r) > 0 && r[len(r)-1] == '…' {
-			// This is expected for truncation
-		}
+	if !utf8.ValidString(result) {
+		t.Fatalf("clipNote produced invalid UTF-8: %q", result)
 	}
 }
 
@@ -158,7 +150,7 @@ func TestScrollByAccountsForPromptStrip(t *testing.T) {
 		pending: &approveRequest{name: "write", args: `{"path":"x"}`},
 	}
 	a.model.SetWidth(40)
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		a.model.User(fmt.Sprintf("msg %d", i))
 	}
 	a.scrollBy(1000)
@@ -207,7 +199,7 @@ func TestPromptStripKeepsFirstWrappedLines(t *testing.T) {
 
 func TestInputBlockKeepsCursorInView(t *testing.T) {
 	var b strings.Builder
-	for i := 0; i < 12; i++ {
+	for i := range 12 {
 		if i > 0 {
 			b.WriteByte('\n')
 		}

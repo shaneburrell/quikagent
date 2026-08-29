@@ -13,9 +13,7 @@ func NewInput() *Input { return &Input{lines: []string{""}} }
 // Text returns the full buffer content.
 func (i *Input) Text() string {
 	out := make([]string, 0, len(i.lines))
-	for _, l := range i.lines {
-		out = append(out, l)
-	}
+	out = append(out, i.lines...)
 	return join(out, "\n")
 }
 

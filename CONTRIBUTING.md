@@ -8,12 +8,21 @@ conventions for agents are in [AGENTS.md](AGENTS.md).
 ## Build and test
 
 ```sh
+gofmt -w .
+go vet ./...
+golangci-lint run ./...
 go test ./...
 go build -o quikagent ./cmd/quikagent
 ```
 
-Smoke-check the binary with `-version`, print mode (`-p`), or `--web` on
-loopback.
+CI also runs `go test -race ./...`. Config is [`.golangci.yml`](.golangci.yml)
+(standard linters plus correctness/security extras). Smoke-check the binary
+with `-version`, print mode (`-p`), or `--web` on loopback.
+
+## Go and module updates
+
+Bump the toolchain and modules by hand (no Dependabot). After `go get` /
+`go mod tidy`, run lint and tests and commit `go.mod` with `go.sum`.
 
 ## Pull requests
 

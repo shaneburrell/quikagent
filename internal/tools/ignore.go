@@ -87,7 +87,7 @@ func (m *ignoreMatcher) Ignored(relPath string, isDir bool) bool {
 	return ignored
 }
 
-func matchIgnore(r ignoreRule, rel string, isDir bool) bool {
+func matchIgnore(r ignoreRule, rel string, _ bool) bool {
 	base := filepath.Base(rel)
 	if r.anchor {
 		if r.raw == rel || strings.HasPrefix(rel, r.raw+"/") {

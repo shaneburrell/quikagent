@@ -205,7 +205,7 @@ func parseCSI(rest []byte) (event *Key, consumed int) {
 		return nil, 0
 	}
 	params := string(rest[1:end])
-	final := byte(rest[end])
+	final := rest[end]
 	consumed = end + 1
 
 	// Bracketed paste: "\x1b[200~<text>\x1b[201~"

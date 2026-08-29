@@ -15,11 +15,29 @@ Human product docs live in [docs/](docs/).
 ## Build & test
 
 ```sh
+gofmt -w .
+go vet ./...
+golangci-lint run ./...
 go test ./...
+go test -race ./...
 go build -o quikagent ./cmd/quikagent
 ```
 
-Prefer `go test ./...` before claiming a change works. Use the local binary for smoke checks (`-version`, `-p`, `--web`).
+Prefer `go test ./...` (and `golangci-lint run ./...` when the linter is installed) before claiming a change works. Use the local binary for smoke checks (`-version`, `-p`, `--web`).
+
+CI runs vet, golangci-lint, build, test, and race. Do not add Dependabot.
+
+## Keep Go and modules current
+
+No automated dependency PRs. When bumping:
+
+1. Set the `go` line in `go.mod` to the current stable toolchain when you intend to require it.
+2. `go get -u=patch ./...` for routine updates; `go get -u ./...` only when you mean minor/major bumps.
+3. `go mod tidy`
+4. `go test ./...` and `golangci-lint run ./...`
+5. Smoke-build `./cmd/quikagent` (`-version`).
+
+Do not bump a module that is only used in comments or docs. Commit `go.mod` and `go.sum` together.
 
 ## Layout
 
@@ -71,6 +89,11 @@ wins). Optional: `providers` / `provider`, `websearch_url`, `lsp.command`,
 skills (`.quikagent/skills/`), custom agents (`.quikagent/agents/`), hooks
 (`.quikagent/hooks/pre-tool`, `post-tool`). `--desktop` opens the loopback
 web UI in the system browser (not a native webview).
+
+## Cursor (local)
+
+`.cursor/` is gitignored. Clone-local rules, skills, and hooks live there
+and are not part of the public repo.
 
 ## Optional Claude Code
 

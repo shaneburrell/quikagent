@@ -70,7 +70,7 @@ func TestExpand(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := Expand(workdir, tt.in)
+			got, err := Expand(t.Context(), workdir, tt.in)
 			if err != nil {
 				t.Fatalf("Expand(%q) error: %v", tt.in, err)
 			}
@@ -104,7 +104,7 @@ func TestExpandGitInRepo(t *testing.T) {
 	writeFile(t, filepath.Join(repo, "tracked.txt"), "one\ntwo\n")
 	writeFile(t, filepath.Join(repo, "untracked.txt"), "new\n")
 
-	got, err := Expand(repo, "state: @git done")
+	got, err := Expand(t.Context(), repo, "state: @git done")
 	if err != nil {
 		t.Fatalf("Expand error: %v", err)
 	}
@@ -123,7 +123,7 @@ func TestExpandGitNonRepo(t *testing.T) {
 	dir := t.TempDir()
 
 	in := "state: @git done"
-	got, err := Expand(dir, in)
+	got, err := Expand(t.Context(), dir, in)
 	if err != nil {
 		t.Fatalf("Expand error: %v", err)
 	}

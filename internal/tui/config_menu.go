@@ -58,7 +58,7 @@ func renderConfigMenu(m *configMenu, cfg *config.Config, width, height int) []Ro
 	lines := append(header, items...)
 	out := make([]Row, height)
 	itemStart := len(header)
-	for y := 0; y < height; y++ {
+	for y := range height {
 		text := ""
 		attr := styleDim
 		if y < len(lines) {

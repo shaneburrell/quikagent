@@ -98,7 +98,7 @@ func (g *globTool) walkMatch(ctx context.Context, root, pattern string) ([]strin
 
 	ign := newIgnoreMatcher(g.workdir)
 	var out, errs []string
-	filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if ctx.Err() != nil {
 			return fs.SkipAll
 		}

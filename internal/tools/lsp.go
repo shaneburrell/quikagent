@@ -93,13 +93,13 @@ func (t *lspTool) Run(ctx context.Context, args json.RawMessage) (string, error)
 		if a.Path == "" {
 			return "", errInvalidArg("path is required")
 		}
-		abs, err := resolve(t.workdir, a.Path)
-		if err != nil {
-			return "", err
+		abs, resErr := resolve(t.workdir, a.Path)
+		if resErr != nil {
+			return "", resErr
 		}
-		data, err := os.ReadFile(abs)
-		if err != nil {
-			return "", err
+		data, readErr := os.ReadFile(abs)
+		if readErr != nil {
+			return "", readErr
 		}
 		_ = c.notify("textDocument/didOpen", map[string]any{
 			"textDocument": map[string]any{

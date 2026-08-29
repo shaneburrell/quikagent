@@ -75,7 +75,7 @@ func RenderSidebar(d SidebarData, width, height, scroll int) []Row {
 	}
 
 	out := make([]Row, height)
-	for y := 0; y < height; y++ {
+	for y := range height {
 		text := strings.Repeat(" ", width)
 		attr := styleDim
 		li := scroll + y

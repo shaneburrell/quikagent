@@ -389,7 +389,7 @@ func runPrint(ag *agent.Agent, sess *session.Session, prompt string, autoYes boo
 		// longer line up, so persist the whole compacted conversation.
 		if err := sess.Replace(ag.Messages()); err != nil {
 			if turnErr != nil {
-				return fmt.Errorf("%w (also session save: %v)", turnErr, err)
+				return fmt.Errorf("%w (also session save: %w)", turnErr, err)
 			}
 			return fmt.Errorf("session save: %w", err)
 		}
@@ -399,7 +399,7 @@ func runPrint(ag *agent.Agent, sess *session.Session, prompt string, autoYes boo
 	for _, m := range ag.Messages()[base:] {
 		if err := sess.Append(m); err != nil {
 			if turnErr != nil {
-				return fmt.Errorf("%w (also session save: %v)", turnErr, err)
+				return fmt.Errorf("%w (also session save: %w)", turnErr, err)
 			}
 			return fmt.Errorf("session save: %w", err)
 		}

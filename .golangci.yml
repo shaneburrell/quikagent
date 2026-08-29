@@ -1,0 +1,106 @@
+# golangci-lint v2 — standard set plus correctness/security extras.
+# Style bikesheds (wsl, lll, varnamelen, mnd, wrapcheck, …) stay off.
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    - asasalint
+    - asciicheck
+    - bidichk
+    - bodyclose
+    - containedctx
+    - contextcheck
+    - copyloopvar
+    - durationcheck
+    - errorlint
+    - exptostd
+    - fatcontext
+    - forcetypeassert
+    - gocheckcompilerdirectives
+    - goprintffuncname
+    - gosec
+    - intrange
+    - makezero
+    - misspell
+    - nakedret
+    - nilerr
+    - nilnesserr
+    - noctx
+    - nosprintfhostport
+    - reassign
+    - recvcheck
+    - revive
+    - thelper
+    - unconvert
+    - unparam
+    - usestdlibvars
+    - wastedassign
+  settings:
+    errcheck:
+      exclude-functions:
+        - (*os.File).WriteString
+        - (*os.File).Write
+        - io.Writer.Write
+    gosec:
+      excludes:
+        - G101 # env var *names* are not credentials
+        - G117 # config.yaml stores api_key by design
+        - G204 # bash/lsp/mcp take user-configured command lines
+        - G306 # source files use 0644; secrets stay 0600
+        - G703 # write/edit already go through resolve()
+    revive:
+      rules:
+        - name: redefines-builtin-id
+          disabled: true
+        - name: unexported-return
+          disabled: true
+        - name: unused-parameter
+          disabled: true
+        - name: indent-error-flow
+          disabled: true
+        - name: empty-block
+          disabled: true
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - std-error-handling
+      - common-false-positives
+      - legacy
+    rules:
+      - path: _test\.go
+        linters:
+          - gosec
+          - errcheck
+          - wrapcheck
+          - noctx
+          - containedctx
+          - contextcheck
+          - forcetypeassert
+          - revive
+          - bodyclose
+          - unparam
+          - errorlint
+      - path: internal/server/server.go
+        linters:
+          - contextcheck # turn context is request-detached on purpose
+      - path: internal/tools/(glob|grep)\.go
+        linters:
+          - nilerr
+      - path: internal/tools/mcp_client.go
+        linters:
+          - nilerr
+      - path: cmd/quikagent/main.go
+        linters:
+          - gosec # G114: Serve is bound to an already-accepted listener
+          - noctx # Listen + desktop open are startup, not request-scoped
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

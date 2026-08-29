@@ -35,7 +35,7 @@ func newFetch() *fetchTool {
 			if len(via) >= fetchMaxRedirects {
 				return fmt.Errorf("too many redirects")
 			}
-			return validateFetchURL(req.URL.String())
+			return validateFetchURL(req.Context(), req.URL.String())
 		},
 	}
 	return f
@@ -96,7 +96,7 @@ func (f *fetchTool) Run(ctx context.Context, args json.RawMessage) (string, erro
 	if a.URL == "" {
 		return "", errInvalidArg("url is required")
 	}
-	if err := validateFetchURL(a.URL); err != nil {
+	if err := validateFetchURL(ctx, a.URL); err != nil {
 		return "", err
 	}
 
@@ -141,7 +141,7 @@ func (f *fetchTool) Run(ctx context.Context, args json.RawMessage) (string, erro
 	return truncate(out), nil
 }
 
-func validateFetchURL(raw string) error {
+func validateFetchURL(ctx context.Context, raw string) error {
 	if !strings.HasPrefix(raw, "http://") && !strings.HasPrefix(raw, "https://") {
 		return errInvalidArg("url must start with http:// or https://")
 	}
@@ -159,12 +159,12 @@ func validateFetchURL(raw string) error {
 	if isBlockedFetchHost(host) {
 		return errInvalidArg("fetch blocked: private or loopback host")
 	}
-	ips, err := net.LookupIP(host)
+	ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
 	if err != nil {
 		return fmt.Errorf("fetch dns: %w", err)
 	}
-	for _, ip := range ips {
-		if isBlockedIP(ip) {
+	for _, ipa := range ips {
+		if isBlockedIP(ipa.IP) {
 			return errInvalidArg("fetch blocked: resolves to private or loopback address")
 		}
 	}
