@@ -31,7 +31,6 @@ func (a *Agent) shouldOrchestrate(userText string) bool {
 func (a *Agent) runOrchestrated(ctx context.Context, ev chan<- Event, steps *int, turnErr *error) {
 	emitStatus(ev, "dispatch")
 	var log strings.Builder
-	failed := false
 	for {
 		if ctx.Err() != nil {
 			*turnErr = ctx.Err()
@@ -74,7 +73,6 @@ func (a *Agent) runOrchestrated(ctx context.Context, ev chan<- Event, steps *int
 			if res.err != nil {
 				a.setStepStatus(res.id, "failed", ev)
 				fmt.Fprintf(&log, "- %s (%s): failed: %v\n", step.Title, res.route, res.err)
-				failed = true
 				continue
 			}
 			okIdx = append(okIdx, i)
@@ -88,7 +86,6 @@ func (a *Agent) runOrchestrated(ctx context.Context, ev chan<- Event, steps *int
 			}
 			revOut, revErr := a.reviewWave(ctx, ev, okSteps, okOuts)
 			if revErr != nil || reviewFailed(revOut) {
-				failed = true
 				reason := "review FAIL"
 				if revErr != nil {
 					reason = "review error: " + revErr.Error()
@@ -109,9 +106,6 @@ func (a *Agent) runOrchestrated(ctx context.Context, ev chan<- Event, steps *int
 					fmt.Fprintf(&log, "  %s\n", clip(res.out, 400))
 				}
 			}
-		}
-		if failed {
-			break
 		}
 	}
 	a.noteConfirmPending(&log)
@@ -177,6 +171,7 @@ func (a *Agent) reviewerModel() string {
 
 func (a *Agent) reviewWave(ctx context.Context, ev chan<- Event, batch []tools.PlanStep, outs []string) (string, error) {
 	var b strings.Builder
+	b.WriteString("Reply with PASS or FAIL on the first line (nothing before it). Do not call question.\n\n")
 	ids := make([]string, 0, len(batch))
 	for i, step := range batch {
 		ids = append(ids, step.ID)
@@ -233,7 +228,7 @@ func (a *Agent) nextWave() []tools.PlanStep {
 		if s.Confirm {
 			continue
 		}
-		if s.Status != "pending" && s.Status != "failed" {
+		if s.Status != "pending" {
 			continue
 		}
 		ok := true
@@ -323,14 +318,40 @@ func workerPrompt(step tools.PlanStep) string {
 	if len(step.Files) > 0 {
 		fmt.Fprintf(&b, "\nYou may write these paths: %s\n", strings.Join(step.Files, ", "))
 	}
-	b.WriteString("\nDo not redo the whole plan. Complete this step and stop.\n")
+	b.WriteString("\nWrite paths relative to the workspace root. Do not nest a second module directory. Do not call question.\n")
+	b.WriteString("If you write .go files, create go.mod at the repo root if it is missing (use the write tool, not bash go mod init).\n")
+	b.WriteString("Complete this step and stop. Do not redo the whole plan.\n")
 	return b.String()
 }
 
 func reviewFailed(out string) bool {
-	first := firstLine(out)
-	u := strings.ToUpper(strings.TrimSpace(first))
-	return !strings.HasPrefix(u, "PASS")
+	// Explicit FAIL rejects the wave. PASS or no verdict (reviewer
+	// wandered / print-mode) accepts the worker result.
+	return reviewVerdict(out) == "FAIL"
+}
+
+// reviewVerdict returns PASS or FAIL from the first verdict line.
+func reviewVerdict(out string) string {
+	lines := strings.Split(out, "\n")
+	n := len(lines)
+	if n > 8 {
+		n = 8
+	}
+	for _, line := range lines[:n] {
+		u := strings.ToUpper(strings.TrimSpace(line))
+		u = strings.TrimLeft(u, "#*`> ")
+		switch {
+		case strings.HasPrefix(u, "PASS") && (len(u) == 4 || !isLetter(u[4])):
+			return "PASS"
+		case strings.HasPrefix(u, "FAIL") && (len(u) == 4 || !isLetter(u[4])):
+			return "FAIL"
+		}
+	}
+	return ""
+}
+
+func isLetter(b byte) bool {
+	return (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z')
 }
 
 func firstLine(s string) string {
@@ -386,6 +407,10 @@ func scopedFileAllow(name, args string, files []string) bool {
 	path := toolArgPath(args)
 	if path == "" {
 		return false
+	}
+	base := filepath.Base(filepath.ToSlash(path))
+	if base == "go.mod" || base == "go.sum" {
+		return true
 	}
 	for _, f := range files {
 		if pathOverlap(path, f) {

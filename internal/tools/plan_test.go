@@ -50,6 +50,18 @@ func TestPlanToolRecordsConfirm(t *testing.T) {
 	}
 }
 
+func TestPlanToolRequiresDepsOnTestSteps(t *testing.T) {
+	p := NewPlan()
+	_, err := p.Run(context.Background(), json.RawMessage(`{"steps":[{"id":"impl","title":"write lib","files":["lib.go"]},{"id":"t","title":"add tests","files":["lib_test.go"]}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := p.Plan()
+	if len(got.Steps) != 2 || len(got.Steps[1].Deps) != 1 || got.Steps[1].Deps[0] != "impl" {
+		t.Fatalf("expected inferred deps, got %+v", got.Steps[1])
+	}
+}
+
 func TestPlanToolRejectsDuplicateIDs(t *testing.T) {
 	p := NewPlan()
 	_, err := p.Run(context.Background(), json.RawMessage(`{"steps":[{"id":"a","title":"one"},{"id":"a","title":"two"}]}`))

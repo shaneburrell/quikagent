@@ -291,14 +291,46 @@ func TestReviewFailedFirstLine(t *testing.T) {
 	if reviewFailed("PASS\nlooks good") {
 		t.Fatal("first-line PASS should succeed")
 	}
-	if !reviewFailed("The worker said PASS somewhere") {
-		t.Fatal("PASS not on first line should fail")
+	if reviewFailed("**PASS**\nlooks good") {
+		t.Fatal("markdown PASS should succeed")
+	}
+	if reviewFailed("Inspected files.\nPASS\nall good") {
+		t.Fatal("PASS on an early line should succeed")
+	}
+	if reviewFailed("--- PASS: TestAdd\nlooks good") {
+		t.Fatal("go test PASS line is inconclusive, should accept workers")
+	}
+	if reviewFailed("The worker said PASS somewhere") {
+		t.Fatal("prose without a verdict line should accept workers")
 	}
 	if !reviewFailed("FAIL\nbroken") {
 		t.Fatal("FAIL should fail")
 	}
-	if !reviewFailed("") {
-		t.Fatal("empty review should fail")
+	if reviewFailed("") {
+		t.Fatal("empty review is inconclusive, should accept workers")
+	}
+}
+
+func TestOrchestrateContinuesAfterReviewFail(t *testing.T) {
+	fake := &fakeLLM{scripts: []script{
+		{text: "a done"},
+		{text: "FAIL\nbad"},
+		{text: "b done"},
+		{text: "PASS"},
+		{text: "a failed review; b shipped"},
+	}}
+	a := newTestAgent(t.TempDir(), fake)
+	a.LoadPlan(tools.Plan{Steps: []tools.PlanStep{
+		{ID: "a", Title: "first", Status: "pending", Files: []string{"a.go"}},
+		{ID: "b", Title: "second", Status: "pending", Files: []string{"a.go"}},
+	}})
+	collect(t, run(a, "go"))
+	p := a.Plan()
+	if p.Steps[0].Status != "failed" {
+		t.Fatalf("review-fail step = %+v", p.Steps[0])
+	}
+	if p.Steps[1].Status != "done" {
+		t.Fatalf("later pending step should still run: %+v", p)
 	}
 }
 
@@ -338,6 +370,9 @@ func TestScopedFileAllow(t *testing.T) {
 	}
 	if scopedFileAllow("bash", `{"command":"git init"}`, []string{"main.go"}) {
 		t.Fatal("bash should not auto-allow")
+	}
+	if !scopedFileAllow("write", `{"path":"go.mod"}`, []string{"internal/a/a.go"}) {
+		t.Fatal("go.mod should be in scope for a Go worker")
 	}
 }
 

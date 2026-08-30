@@ -15,7 +15,7 @@ import (
 const subagentMaxSteps = 20
 
 const (
-	reviewerPrefix = "You are a reviewer. Inspect the workspace (git diff if useful) and decide whether the assigned step was completed. Reply with PASS or FAIL and a short reason. Do not modify files.\n\n"
+	reviewerPrefix = "You are a reviewer. Inspect the workspace with read/git only. Do not modify files. Do not call question. After a short inspect, stop calling tools and reply. The first line of your final reply must be PASS or FAIL (nothing before it), then a short reason.\n\n"
 	explorePrefix  = "You are an explore subagent. Only read and search; do not modify files.\n\n"
 	generalPrefix  = "You are a general-purpose subagent. Complete the assigned task and return a concise result.\n\n"
 )
@@ -66,8 +66,10 @@ func (a *Agent) spawnSubagent(ctx context.Context, req subagentReq) (string, err
 		mode = Plan
 		prefix = explorePrefix
 	case "reviewer":
+		// Read-only tools, but Build system prompt — Plan mode tells
+		// the model to ask questions and call the plan tool.
 		childTools = a.tools.ReadOnly()
-		mode = Plan
+		mode = Build
 		prefix = reviewerPrefix
 	case "general":
 		prefix = generalPrefix
@@ -87,6 +89,9 @@ func (a *Agent) spawnSubagent(ctx context.Context, req subagentReq) (string, err
 	}
 
 	childTools = childTools.Without("task", "plan")
+	if kind == "reviewer" {
+		childTools = childTools.Without("question")
+	}
 
 	if kind == "reviewer" && req.Model == "" {
 		req.Model = a.reviewerModel()
@@ -96,8 +101,14 @@ func (a *Agent) spawnSubagent(ctx context.Context, req subagentReq) (string, err
 	child := New(a.llm, childTools, a.opts)
 	if child.tools != nil {
 		child.tools = child.tools.Without("task", "plan")
+		if kind == "reviewer" {
+			child.tools = child.tools.Without("question")
+		}
 	}
 	child.stepLimit = subagentMaxSteps
+	if kind == "reviewer" {
+		child.stepLimit = 8
+	}
 	child.SetMode(mode)
 	if kind == "reviewer" {
 		child.planModel = ""

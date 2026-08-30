@@ -39,7 +39,7 @@ func (t *PlanTool) ReadOnly() bool { return true }
 func (t *PlanTool) Spec() llm.Tool {
 	return llm.Tool{
 		Name:        "plan",
-		Description: "Record a structured implementation plan. Call once after a short investigate, with concrete steps (id, title, detail, optional files, deps, and confirm). Set confirm:true for steps that need the user (git init, destructive). Then write the human-readable plan and stop.",
+		Description: "Record a structured implementation plan. Call once after a short investigate, with concrete steps (id, title, detail, files, deps, and confirm). Every step should list files. Sequential work (schema then impl, impl then tests) MUST set deps to earlier step ids. Test or verify steps after the first step require deps. Set confirm:true for steps that need the user (git init, destructive). Then write the human-readable plan and stop.",
 		Parameters:  []byte(`{"type":"object","properties":{"title":{"type":"string"},"steps":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"title":{"type":"string"},"detail":{"type":"string"},"files":{"type":"array","items":{"type":"string"}},"deps":{"type":"array","items":{"type":"string"}},"confirm":{"type":"boolean"},"status":{"type":"string","enum":["pending","in_progress","done","failed"]}},"required":["id","title"]}}},"required":["steps"]}`),
 	}
 }
@@ -76,8 +76,27 @@ func (t *PlanTool) Run(ctx context.Context, args json.RawMessage) (string, error
 			return "", errInvalidArg("invalid step status " + s.Status)
 		}
 	}
+	for i, s := range payload.Steps {
+		for _, d := range s.Deps {
+			if !seen[d] {
+				return "", errInvalidArg("unknown dep " + d + " on step " + s.ID)
+			}
+			if d == s.ID {
+				return "", errInvalidArg("step " + s.ID + " cannot depend on itself")
+			}
+		}
+		if i > 0 && len(s.Deps) == 0 && stepNeedsDeps(s) {
+			payload.Steps[i].Deps = []string{payload.Steps[i-1].ID}
+		}
+	}
 	t.plan = payload
 	return fmt.Sprintf("Plan recorded: %d step(s).", len(payload.Steps)), nil
+}
+
+func stepNeedsDeps(s PlanStep) bool {
+	// Title/detail only — do not scan files (*_test.go would always match).
+	t := strings.ToLower(s.Title + " " + s.Detail)
+	return strings.Contains(t, "test") || strings.Contains(t, "verify")
 }
 
 // Plan returns a copy of the recorded plan.
