@@ -354,14 +354,6 @@ func isLetter(b byte) bool {
 	return (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z')
 }
 
-func firstLine(s string) string {
-	s = strings.TrimSpace(s)
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
-		return strings.TrimSpace(s[:i])
-	}
-	return s
-}
-
 func (a *Agent) setStepStatus(id, status string, ev chan<- Event) {
 	a.mu.Lock()
 	for i := range a.plan.Steps {
