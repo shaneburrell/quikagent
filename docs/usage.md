@@ -105,7 +105,7 @@ the session. Web **Always** is the same scope.
 ## Print, plan, web
 
 - **Print:** one turn, stdout. Prompts on stdin unless `-yes`.
-- **Plan:** read-only tools only (`--plan`, **Tab**, or `/plan` / `/build`). Arch still chooses the model unless `plan_model` (or `QUIKAGENT_PLAN_MODEL`) is set. After the plan tool, type `go` to dispatch recorded steps (Tab is optional).
+- **Plan:** read-only tools only (`--plan`, **Tab**, or `/plan` / `/build`). Arch still chooses the model unless `plan_model` (or `QUIKAGENT_PLAN_MODEL`) is set. After a short investigate, the plan tool is required; idle investigation is nudged then stopped. After the plan tool, type `go` to dispatch recorded steps (Tab is optional).
 - **Web:** SSE UI on loopback by default. Reach it remotely with SSH,
   Tailscale, or Cloudflared ([hosting.md](hosting.md)). Do not use
   `--web-listen-all` as a hosted path. UI limits: [web-ui.md](web-ui.md).

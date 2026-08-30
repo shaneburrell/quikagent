@@ -20,11 +20,13 @@ const maxSteps = 50
 const maxPlanQuestions = 2
 const maxParallelTools = 8
 
-// Idle investigative steps (no write/edit/apply_patch/mutating bash).
+// Idle investigative steps (no write/edit/apply_patch/plan/mutating bash).
 const idleNudgeSteps = 8
 const idleStopSteps = 12
 
 const idleNudgeText = "You have investigated without changing the workspace — edit, or give a final answer and stop."
+const idleNudgePlanText = "You have investigated enough — call the plan tool with concrete steps, write the plan, and stop. Do not read more files."
+const idleStopPlanText = "Your next action must be the plan tool with findings so far. Do not call other tools."
 
 // compactKeepRecent is how many trailing messages to keep when compacting.
 const compactKeepRecent = 12
@@ -446,12 +448,8 @@ func (a *Agent) Run(ctx context.Context, userText string, ev chan<- Event) {
 	}
 	a.mu.Lock()
 	a.messages = append(a.messages, llm.Message{Role: llm.RoleUser, Content: userText})
-	needCompact := len(a.messages) > compactMessageThreshold
 	a.mu.Unlock()
-	if needCompact {
-		emitStatus(ev, "compacting")
-		a.CompactCtx(ctx)
-	}
+	a.maybeCompact(ctx, ev)
 
 	handoff := a.isHandoff(userText)
 	if a.shouldOrchestrate(userText) {
@@ -479,7 +477,7 @@ func (a *Agent) Run(ctx context.Context, userText string, ev chan<- Event) {
 				a.setModel(home, false)
 			}
 		}
-		route, model, raw, err := r.Select(ctx, userText, selectMode)
+		route, model, _, err := r.Select(ctx, userText, selectMode)
 		if handoff && (route == "other" || model == "") {
 			route = "coder"
 			model = a.coderModel()
@@ -499,8 +497,6 @@ func (a *Agent) Run(ctx context.Context, userText string, ev chan<- Event) {
 		if err != nil {
 			routeEv.Text = err.Error()
 			routeRec.Err = clip(err.Error(), 200)
-		} else if raw != "" {
-			routeRec.Err = clip(raw, 80)
 		}
 		ev <- routeEv
 		a.emitTrace(routeRec)
@@ -520,6 +516,7 @@ func (a *Agent) Run(ctx context.Context, userText string, ev chan<- Event) {
 		limit = maxSteps
 	}
 	idle := 0
+	planLastChance := false
 	for range limit {
 		if ctx.Err() != nil {
 			turnErr = ctx.Err()
@@ -552,12 +549,12 @@ func (a *Agent) Run(ctx context.Context, userText string, ev chan<- Event) {
 			return
 		}
 
-		assistant, ok := a.consume(ctx, ch, ev, usage)
-		if !ok {
+		assistant, consErr := a.consume(ctx, ch, ev, usage)
+		if consErr != nil {
 			if ctx.Err() != nil {
 				turnErr = ctx.Err()
 			} else {
-				turnErr = fmt.Errorf("llm")
+				turnErr = consErr
 			}
 			return
 		}
@@ -595,18 +592,28 @@ func (a *Agent) Run(ctx context.Context, userText string, ev chan<- Event) {
 			ev <- Event{Type: EventError, Err: ctx.Err()}
 			return
 		}
+		a.maybeCompact(ctx, ev)
 		if stepMadeProgress(assistant.ToolCalls) {
 			idle = 0
+			planLastChance = false
 			continue
 		}
 		idle++
 		if idle == idleNudgeSteps {
+			nudge := idleNudgeMessage(a.Mode())
 			a.mu.Lock()
-			a.messages = append(a.messages, llm.Message{Role: llm.RoleUser, Content: idleNudgeText})
+			a.messages = append(a.messages, llm.Message{Role: llm.RoleUser, Content: nudge})
 			a.mu.Unlock()
 			emitStatus(ev, "no-progress")
 		}
 		if idle >= idleStopSteps {
+			if a.Mode() == Plan && !planLastChance {
+				planLastChance = true
+				a.mu.Lock()
+				a.messages = append(a.messages, llm.Message{Role: llm.RoleUser, Content: idleStopPlanText})
+				a.mu.Unlock()
+				continue
+			}
 			turnErr = fmt.Errorf("no-progress")
 			ev <- Event{Type: EventError, Err: fmt.Errorf("no progress after %d investigative steps", idle)}
 			return
@@ -675,11 +682,30 @@ func emitStatus(ev chan<- Event, name string) {
 	ev <- Event{Type: EventStatus, Name: name, Text: name}
 }
 
-// stepMadeProgress reports whether any call changed the workspace.
+func (a *Agent) maybeCompact(ctx context.Context, ev chan<- Event) {
+	a.mu.RLock()
+	need := len(a.messages) > compactMessageThreshold
+	a.mu.RUnlock()
+	if !need {
+		return
+	}
+	emitStatus(ev, "compacting")
+	a.CompactCtx(ctx)
+}
+
+func idleNudgeMessage(mode Mode) string {
+	if mode == Plan {
+		return idleNudgePlanText
+	}
+	return idleNudgeText
+}
+
+// stepMadeProgress reports whether any call changed the workspace or
+// recorded a structured plan.
 func stepMadeProgress(calls []llm.ToolCall) bool {
 	for _, tc := range calls {
 		switch tc.Name {
-		case "write", "edit", "apply_patch":
+		case "write", "edit", "apply_patch", "plan":
 			return true
 		case "bash":
 			if tools.BashLooksMutating(tc.Arguments) {
@@ -721,8 +747,9 @@ func (a *Agent) applyStepModel(ev chan<- Event, turnModel string, planEmitted *b
 }
 
 // consume drains one LLM stream, forwarding deltas to ev. It returns
-// the assembled assistant message, or nil if the stream failed.
-func (a *Agent) consume(_ context.Context, ch <-chan llm.Event, ev chan<- Event, usage *llm.Usage) (*llm.Message, bool) {
+// the assembled assistant message, or an error if the stream failed.
+// EventError is emitted here; callers must not emit a second one.
+func (a *Agent) consume(_ context.Context, ch <-chan llm.Event, ev chan<- Event, usage *llm.Usage) (*llm.Message, error) {
 	for e := range ch {
 		switch e.Type {
 		case llm.EventText:
@@ -734,14 +761,19 @@ func (a *Agent) consume(_ context.Context, ch <-chan llm.Event, ev chan<- Event,
 				usage.PromptTokens += e.Usage.PromptTokens
 				usage.CompletionTokens += e.Usage.CompletionTokens
 			}
-			return e.Message, true
+			return e.Message, nil
 		case llm.EventError:
-			ev <- Event{Type: EventError, Err: e.Err}
-			return nil, false
+			err := e.Err
+			if err == nil {
+				err = fmt.Errorf("llm")
+			}
+			ev <- Event{Type: EventError, Err: err}
+			return nil, err
 		}
 	}
-	ev <- Event{Type: EventError, Err: fmt.Errorf("llm stream closed unexpectedly")}
-	return nil, false
+	err := fmt.Errorf("llm stream closed unexpectedly")
+	ev <- Event{Type: EventError, Err: err}
+	return nil, err
 }
 
 // runTool executes a single tool call and returns model-facing output.
