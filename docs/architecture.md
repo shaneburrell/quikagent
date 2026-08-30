@@ -23,7 +23,8 @@ plan mode (Tab is optional). Arch routes as implement (`coder` if it
 would have said `other`). A structured `plan` is dispatched by the
 runtime: each step is routed into a pinned child (home/coder if the
 router is off); independent file sets may run in parallel; a
-`small_model` reviewer checks each wave; `confirm` steps stay pending.
+`small_model` reviewer checks each wave; a review FAIL marks that wave
+failed and remaining pending steps still dispatch; `confirm` steps stay pending.
 
 User guides: [install.md](install.md), [hosting.md](hosting.md),
 [web-ui.md](web-ui.md). Proposed daemon / jobs / projects:
