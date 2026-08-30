@@ -20,10 +20,12 @@ Cloud-init installs Go, tmux, and `~/.quikagent`. It does **not**
 install or build quikagent, clone this repo, or seed an API key. Do
 those by hand after SSH.
 
-Long-running agent host (loopback only):
+Long-running agent host (loopback only). Pin the sandbox with
+`--workdir` so the unit does not need a new `WorkingDirectory=` when
+the lab repo changes:
 
 ```sh
-quikagent --web 127.0.0.1:8080
+quikagent --workdir /home/ubuntu/src/modelmove --web 127.0.0.1:8080
 ```
 
 Remote access from a laptop or phone is documented in
@@ -37,11 +39,22 @@ ssh -L 8080:127.0.0.1:8080 ubuntu@<vm-ip>
 
 Do not bind the web UI on the LAN. Interactive TUI soaks: SSH in and
 run under `tmux`. Seed `~/.quikagent/config.yaml` on the VM (never
-commit secrets). Clone this repository onto the VM with a deploy key or
-HTTPS.
+commit secrets).
+
+GitHub write from the lab:
+
+- Use **HTTPS remotes** plus `gh auth git-credential`. Pin
+  `gh config set git_protocol https` — it can drift back to SSH.
+- A deploy key on `shaneburrell/quikagent` cannot push
+  `modelmove` or the Homebrew tap. Those remotes must be HTTPS with
+  the `gh` token (`repo` scope).
+- `permissions.deny: ["bash(rm *)"]` blocks `rm -rf /tmp/...`. Reuse a
+  directory or `mkdir` a new one; do not weaken deny-wins.
 
 Print-mode automation should pass `-yes` when auto-approval is required
-(`quikagent -yes -p "..."`).
+(`quikagent -yes -p "..."`). `--timeout` (default 20m) and
+`--max-steps` apply to `-p`. **`-yes` does not apply to `--web`** —
+unattended lab work stays print mode.
 
 ## Next
 

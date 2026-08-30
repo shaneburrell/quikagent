@@ -46,6 +46,7 @@ Do not use `--web-listen-all` as hosted access.
 quikagent                         # interactive TUI
 quikagent -p "task"               # print mode
 quikagent -yes -p "task"          # print mode, auto-approve mutating tools
+quikagent --workdir /path/to/repo # sandbox root for TUI, -p, and --web
 quikagent --continue              # resume latest session
 quikagent --session <id>          # resume by id
 quikagent --plan                  # plan (read-only) mode

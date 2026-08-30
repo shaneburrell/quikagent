@@ -77,7 +77,9 @@ writes YAML.
 `./.quikagent/config.yaml` field-merges over the home file:
 
 - `permissions.allow` / `permissions.deny` slices are appended (project
-  does not wipe home deny).
+  does not wipe home deny). Deny wins. `bash(rm *)` matches
+  `rm -rf /tmp/...`; agents should reuse a directory or `mkdir` a new
+  one instead of removing temp trees.
 - `mcpServers` merge by name.
 - `lsp` fields merge.
 - `router.enabled` applies only when the key is present. A bare `router:`

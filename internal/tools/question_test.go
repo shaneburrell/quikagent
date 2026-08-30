@@ -20,9 +20,12 @@ func TestQuestionRequiresPrompt(t *testing.T) {
 
 func TestQuestionNoFrontend(t *testing.T) {
 	q := NewQuestion(nil)
-	_, err := q.Run(context.Background(), json.RawMessage(`{"question":"ok?"}`))
-	if err == nil || !strings.Contains(err.Error(), "no interactive frontend") {
+	out, err := q.Run(context.Background(), json.RawMessage(`{"question":"ok?"}`))
+	if err != nil {
 		t.Fatalf("err = %v", err)
+	}
+	if !strings.Contains(out, "No interactive frontend") || !strings.Contains(out, "Do not call question again") {
+		t.Fatalf("out = %q", out)
 	}
 }
 

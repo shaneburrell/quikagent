@@ -17,7 +17,8 @@ and worktrees; jobs can ship first with one process workdir.
 Limits of the workaround:
 
 - `-yes` is print-only; the web UI cannot auto-approve.
-- `question` in print fails (`no interactive frontend`).
+- `question` in print skips with a stub (`No interactive frontend…`);
+  the model should assume and continue. Jobs may still choose fail.
 - Persist is end-of-turn. Crash mid-turn loses the user message and
   in-flight tools.
 - No overlap lock, inbox, or completion notify.
@@ -114,8 +115,8 @@ Reuse Slice 1 profiles.
 
 Do not hang a job on Allow/Deny. That is the whole point.
 
-Print-mode `question` remains broken until print also gets a
-non-interactive policy; jobs do not use print.
+Print-mode `question` skips with a stub when there is no frontend.
+Jobs may still choose fail or skip per profile.
 
 ## Inbox (web)
 

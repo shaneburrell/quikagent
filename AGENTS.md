@@ -90,7 +90,9 @@ when the key is explicit).
 wins). Optional: `providers` / `provider`, `websearch_url`, `lsp.command`,
 skills (`.quikagent/skills/`), custom agents (`.quikagent/agents/`), hooks
 (`.quikagent/hooks/pre-tool`, `post-tool`). `--desktop` opens the loopback
-web UI in the system browser (not a native webview).
+web UI in the system browser (not a native webview). `--workdir PATH`
+sets the sandbox root (TUI, `-p`, `--web`). Print `--timeout` defaults
+to 20m (`0` disables). `--yes` does not apply to `--web`.
 
 ## Cursor (local)
 

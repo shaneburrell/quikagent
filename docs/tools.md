@@ -23,7 +23,7 @@ Registered by default:
 | `git` | Git in the workdir | yes |
 | `todo` | In-session todo list | no |
 | `plan` | Structured plan steps (id, title, detail, files, deps, confirm) | yes |
-| `question` | Ask the user a structured question | yes |
+| `question` | Ask the user a structured question. Print mode (no UI) returns a skip stub instead of erroring. | yes |
 | `apply_patch` | Multi-file patch | no |
 
 ## Optional

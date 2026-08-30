@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -78,7 +79,11 @@ func (f *fakeLLM) ChatAs(ctx context.Context, model string, messages []llm.Messa
 	delay := f.delay
 	f.mu.Unlock()
 	if delay > 0 {
-		time.Sleep(delay)
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(delay):
+		}
 	}
 
 	ch := make(chan llm.Event, 16)
@@ -414,13 +419,10 @@ func TestStreamErrorForwardedOnce(t *testing.T) {
 
 func TestMaxStepsGuard(t *testing.T) {
 	dir := t.TempDir()
-	if err := writeFile(dir, "f.txt", "x\n"); err != nil {
-		t.Fatal(err)
-	}
 	fake := &fakeLLM{}
 	for i := range maxSteps + 5 {
 		fake.scripts = append(fake.scripts, script{
-			toolCalls: []llm.ToolCall{{ID: fmt.Sprintf("c%d", i), Name: "read", Arguments: `{"path":"f.txt"}`}},
+			toolCalls: []llm.ToolCall{{ID: fmt.Sprintf("c%d", i), Name: "write", Arguments: `{"path":"f.txt","content":"x"}`}},
 		})
 	}
 	a := newTestAgent(dir, fake)
@@ -432,6 +434,102 @@ func TestMaxStepsGuard(t *testing.T) {
 	}
 	if last.Type != EventError || !strings.Contains(last.Err.Error(), "tool steps") {
 		t.Fatalf("last = %+v", last)
+	}
+}
+
+func TestNoProgressStopsAfterIdleReads(t *testing.T) {
+	dir := t.TempDir()
+	if err := writeFile(dir, "f.txt", "x\n"); err != nil {
+		t.Fatal(err)
+	}
+	fake := &fakeLLM{}
+	for i := range idleStopSteps + 3 {
+		fake.scripts = append(fake.scripts, script{
+			toolCalls: []llm.ToolCall{{ID: fmt.Sprintf("c%d", i), Name: "read", Arguments: `{"path":"f.txt"}`}},
+		})
+	}
+	a := newTestAgent(dir, fake)
+	events := collect(t, run(a, "investigate"))
+
+	var last Event
+	var nudged bool
+	for _, e := range events {
+		if e.Type == EventStatus && e.Name == "no-progress" {
+			nudged = true
+		}
+		last = e
+	}
+	if !nudged {
+		t.Fatal("expected no-progress nudge")
+	}
+	if last.Type != EventError || !strings.Contains(last.Err.Error(), "no progress") {
+		t.Fatalf("last = %+v", last)
+	}
+	foundNudge := false
+	for _, m := range a.Messages() {
+		if m.Role == llm.RoleUser && strings.Contains(m.Content, idleNudgeText) {
+			foundNudge = true
+		}
+	}
+	if !foundNudge {
+		t.Fatal("nudge was not appended to history")
+	}
+}
+
+func TestNoProgressResetByWrite(t *testing.T) {
+	dir := t.TempDir()
+	if err := writeFile(dir, "f.txt", "x\n"); err != nil {
+		t.Fatal(err)
+	}
+	fake := &fakeLLM{}
+	for i := range idleNudgeSteps {
+		fake.scripts = append(fake.scripts, script{
+			toolCalls: []llm.ToolCall{{ID: fmt.Sprintf("r%d", i), Name: "read", Arguments: `{"path":"f.txt"}`}},
+		})
+	}
+	fake.scripts = append(fake.scripts,
+		script{toolCalls: []llm.ToolCall{{ID: "w", Name: "write", Arguments: `{"path":"f.txt","content":"y"}`}}},
+		script{text: "done"},
+	)
+	a := newTestAgent(dir, fake)
+	events := collect(t, run(a, "fix it"))
+	last := events[len(events)-1]
+	if last.Type != EventTurnDone {
+		t.Fatalf("last = %+v", last)
+	}
+}
+
+func TestSetStepLimit(t *testing.T) {
+	dir := t.TempDir()
+	fake := &fakeLLM{}
+	for i := range 6 {
+		fake.scripts = append(fake.scripts, script{
+			toolCalls: []llm.ToolCall{{ID: fmt.Sprintf("c%d", i), Name: "write", Arguments: `{"path":"f.txt","content":"x"}`}},
+		})
+	}
+	a := newTestAgent(dir, fake)
+	a.SetStepLimit(3)
+	events := collect(t, run(a, "loop"))
+	last := events[len(events)-1]
+	if last.Type != EventError || !strings.Contains(last.Err.Error(), "3 tool steps") {
+		t.Fatalf("last = %+v", last)
+	}
+}
+
+func TestRunHonorsDeadline(t *testing.T) {
+	fake := &fakeLLM{delay: 200 * time.Millisecond, scripts: []script{{text: "hi"}}}
+	a := newTestAgent(t.TempDir(), fake)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
+	defer cancel()
+	ch := make(chan Event, 64)
+	go a.Run(ctx, "hi", ch)
+	events := collect(t, ch)
+	last := events[len(events)-1]
+	if last.Type != EventError {
+		t.Fatalf("last = %+v", last)
+	}
+	if last.Err == nil || (!errors.Is(last.Err, context.DeadlineExceeded) && !strings.Contains(last.Err.Error(), "deadline")) {
+		t.Fatalf("err = %v", last.Err)
 	}
 }
 
