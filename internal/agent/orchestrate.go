@@ -203,8 +203,8 @@ func (a *Agent) summarizeDispatch(ctx context.Context, ev chan<- Event, log stri
 		return strings.TrimSpace(log)
 	}
 	usage := &llm.Usage{}
-	assistant, ok := a.consume(ctx, ch, ev, usage)
-	if !ok || assistant == nil || strings.TrimSpace(assistant.Content) == "" {
+	assistant, err := a.consume(ctx, ch, ev, usage)
+	if err != nil || assistant == nil || strings.TrimSpace(assistant.Content) == "" {
 		return strings.TrimSpace(log)
 	}
 	a.mu.Lock()

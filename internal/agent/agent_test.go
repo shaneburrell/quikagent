@@ -401,6 +401,8 @@ func TestChatSetupError(t *testing.T) {
 func TestStreamErrorForwardedOnce(t *testing.T) {
 	fake := &fakeLLM{scripts: []script{{streamErr: fmt.Errorf("stream broke")}}}
 	a := newTestAgent(t.TempDir(), fake)
+	var recs []session.TraceRecord
+	a.SetTrace(func(r session.TraceRecord) { recs = append(recs, r) })
 	events := collect(t, run(a, "hi"))
 
 	var errCount int
@@ -414,6 +416,16 @@ func TestStreamErrorForwardedOnce(t *testing.T) {
 	}
 	if errCount != 1 {
 		t.Fatalf("error events = %d", errCount)
+	}
+	if len(recs) == 0 {
+		t.Fatal("expected traces")
+	}
+	end := recs[len(recs)-1]
+	if end.Type != "turn_end" || end.OK == nil || *end.OK {
+		t.Fatalf("end = %+v", end)
+	}
+	if !strings.Contains(end.Err, "stream broke") {
+		t.Fatalf("turn_end err = %q, want stream broke", end.Err)
 	}
 }
 
@@ -495,6 +507,126 @@ func TestNoProgressResetByWrite(t *testing.T) {
 	events := collect(t, run(a, "fix it"))
 	last := events[len(events)-1]
 	if last.Type != EventTurnDone {
+		t.Fatalf("last = %+v", last)
+	}
+}
+
+const planToolArgs = `{"title":"fix","steps":[{"id":"s1","title":"do it","files":["f.txt"]}]}`
+
+func TestNoProgressResetByPlan(t *testing.T) {
+	dir := t.TempDir()
+	if err := writeFile(dir, "f.txt", "x\n"); err != nil {
+		t.Fatal(err)
+	}
+	fake := &fakeLLM{}
+	for i := range 3 {
+		fake.scripts = append(fake.scripts, script{
+			toolCalls: []llm.ToolCall{{ID: fmt.Sprintf("r%d", i), Name: "read", Arguments: `{"path":"f.txt"}`}},
+		})
+	}
+	fake.scripts = append(fake.scripts,
+		script{toolCalls: []llm.ToolCall{{ID: "p", Name: "plan", Arguments: planToolArgs}}},
+		script{text: "here is the plan"},
+	)
+	a := newTestAgent(dir, fake)
+	a.SetMode(Plan)
+	events := collect(t, run(a, "investigate"))
+	last := events[len(events)-1]
+	if last.Type != EventTurnDone {
+		t.Fatalf("last = %+v", last)
+	}
+}
+
+func TestPlanModeIdleNudge(t *testing.T) {
+	dir := t.TempDir()
+	if err := writeFile(dir, "f.txt", "x\n"); err != nil {
+		t.Fatal(err)
+	}
+	fake := &fakeLLM{}
+	for i := range idleNudgeSteps {
+		fake.scripts = append(fake.scripts, script{
+			toolCalls: []llm.ToolCall{{ID: fmt.Sprintf("r%d", i), Name: "read", Arguments: `{"path":"f.txt"}`}},
+		})
+	}
+	fake.scripts = append(fake.scripts, script{text: "stopping"})
+	a := newTestAgent(dir, fake)
+	a.SetMode(Plan)
+	events := collect(t, run(a, "investigate"))
+	var nudged bool
+	for _, e := range events {
+		if e.Type == EventStatus && e.Name == "no-progress" {
+			nudged = true
+		}
+	}
+	if !nudged {
+		t.Fatal("expected no-progress nudge")
+	}
+	foundPlan, foundEdit := false, false
+	for _, m := range a.Messages() {
+		if m.Role == llm.RoleUser && strings.Contains(m.Content, idleNudgePlanText) {
+			foundPlan = true
+		}
+		if m.Role == llm.RoleUser && strings.Contains(m.Content, idleNudgeText) {
+			foundEdit = true
+		}
+	}
+	if !foundPlan {
+		t.Fatal("plan-mode nudge was not appended")
+	}
+	if foundEdit {
+		t.Fatal("build-mode edit nudge must not appear in plan mode")
+	}
+}
+
+func TestPlanModeLastChancePlanSucceeds(t *testing.T) {
+	dir := t.TempDir()
+	if err := writeFile(dir, "f.txt", "x\n"); err != nil {
+		t.Fatal(err)
+	}
+	fake := &fakeLLM{}
+	for i := range idleStopSteps {
+		fake.scripts = append(fake.scripts, script{
+			toolCalls: []llm.ToolCall{{ID: fmt.Sprintf("r%d", i), Name: "read", Arguments: `{"path":"f.txt"}`}},
+		})
+	}
+	fake.scripts = append(fake.scripts,
+		script{toolCalls: []llm.ToolCall{{ID: "p", Name: "plan", Arguments: planToolArgs}}},
+		script{text: "here is the plan"},
+	)
+	a := newTestAgent(dir, fake)
+	a.SetMode(Plan)
+	events := collect(t, run(a, "investigate"))
+	last := events[len(events)-1]
+	if last.Type != EventTurnDone {
+		t.Fatalf("last = %+v", last)
+	}
+	found := false
+	for _, m := range a.Messages() {
+		if m.Role == llm.RoleUser && m.Content == idleStopPlanText {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("last-chance plan prompt was not appended")
+	}
+}
+
+func TestPlanModeLastChanceIgnoredErrors(t *testing.T) {
+	dir := t.TempDir()
+	if err := writeFile(dir, "f.txt", "x\n"); err != nil {
+		t.Fatal(err)
+	}
+	fake := &fakeLLM{}
+	for i := range idleStopSteps + 1 {
+		fake.scripts = append(fake.scripts, script{
+			toolCalls: []llm.ToolCall{{ID: fmt.Sprintf("r%d", i), Name: "read", Arguments: `{"path":"f.txt"}`}},
+		})
+	}
+	a := newTestAgent(dir, fake)
+	a.SetMode(Plan)
+	events := collect(t, run(a, "investigate"))
+	last := events[len(events)-1]
+	if last.Type != EventError || !strings.Contains(last.Err.Error(), "no progress") {
 		t.Fatalf("last = %+v", last)
 	}
 }
@@ -607,6 +739,28 @@ func TestRouterEmitsEvent(t *testing.T) {
 	}
 }
 
+func TestRouterTraceOmitsRawOnSuccess(t *testing.T) {
+	fake := &fakeLLM{scripts: []script{{text: "done"}}}
+	a := newTestAgent(t.TempDir(), fake)
+	a.SetRouter(&fakeRouter{route: "qwen", model: "qwen-model", raw: "{'route': 'qwen'}"})
+	a.SetRouterEnabled(true)
+	var recs []session.TraceRecord
+	a.SetTrace(func(r session.TraceRecord) { recs = append(recs, r) })
+	_ = collect(t, run(a, "hello"))
+	var route session.TraceRecord
+	for _, r := range recs {
+		if r.Type == "route" {
+			route = r
+		}
+	}
+	if route.Route != "qwen" {
+		t.Fatalf("route = %+v", route)
+	}
+	if route.Err != "" {
+		t.Fatalf("route err = %q, want empty on success", route.Err)
+	}
+}
+
 func TestRouterFallbackSurfacesError(t *testing.T) {
 	fake := &fakeLLM{scripts: []script{{text: "done"}}}
 	a := newTestAgent(t.TempDir(), fake)
@@ -627,6 +781,7 @@ func TestRouterFallbackSurfacesError(t *testing.T) {
 type fakeRouter struct {
 	mu                  sync.Mutex
 	route, model, coder string
+	raw                 string
 	err                 error
 	calls               int
 	lastMode            string
@@ -647,7 +802,7 @@ func (f *fakeRouter) Select(ctx context.Context, userText, mode string) (string,
 		f.queue = f.queue[1:]
 		return q.route, q.model, "", f.err
 	}
-	return f.route, f.model, "", f.err
+	return f.route, f.model, f.raw, f.err
 }
 
 func (f *fakeRouter) RouteModel(name string) string {
@@ -880,6 +1035,52 @@ func TestCompactCallsOnCompact(t *testing.T) {
 	}
 	if !strings.Contains(persisted[0].Content, "compacted") {
 		t.Fatalf("persisted[0] = %q", persisted[0].Content)
+	}
+}
+
+func TestCompactMidTurn(t *testing.T) {
+	dir := t.TempDir()
+	if err := writeFile(dir, "f.txt", "x\n"); err != nil {
+		t.Fatal(err)
+	}
+	fake := &fakeLLM{scripts: []script{
+		{toolCalls: []llm.ToolCall{{ID: "r1", Name: "read", Arguments: `{"path":"f.txt"}`}}},
+		{text: "done"},
+	}}
+	a := newTestAgent(dir, fake)
+	var compacted bool
+	a.SetOnCompact(func([]llm.Message) { compacted = true })
+	var hist []llm.Message
+	for i := range compactMessageThreshold - 2 {
+		hist = append(hist, llm.Message{Role: llm.RoleUser, Content: fmt.Sprintf("msg-%d", i)})
+	}
+	a.LoadHistory(hist)
+	events := collect(t, run(a, "read it"))
+	var sawCompact bool
+	last := events[len(events)-1]
+	for _, e := range events {
+		if e.Type == EventStatus && e.Name == "compacting" {
+			sawCompact = true
+		}
+	}
+	if last.Type != EventTurnDone {
+		t.Fatalf("last = %+v", last)
+	}
+	if !sawCompact || !compacted {
+		t.Fatal("expected mid-turn compact")
+	}
+	if len(fake.requests) < 2 {
+		t.Fatalf("chats = %d, want >= 2", len(fake.requests))
+	}
+	found := false
+	for _, m := range fake.requests[1] {
+		if m.Role == llm.RoleUser && strings.Contains(m.Content, "compacted") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("second LLM call should see compacted history")
 	}
 }
 

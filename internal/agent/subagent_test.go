@@ -64,7 +64,7 @@ func TestSubagentNilErrorIsError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for EventError with nil Err")
 	}
-	if !strings.Contains(err.Error(), "subagent error") {
+	if !strings.Contains(err.Error(), "llm") {
 		t.Fatalf("err = %v", err)
 	}
 }
