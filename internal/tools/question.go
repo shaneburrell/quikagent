@@ -25,8 +25,12 @@ type QuestionTool struct {
 	ask AskFunc
 }
 
-// NewQuestion builds a question tool. If ask is nil, Run returns an
-// error until SetAsk is called (print mode has no interactive UI).
+// QuestionSkipStub is returned when there is no interactive frontend
+// (print mode). The model should assume and continue.
+const QuestionSkipStub = "No interactive frontend. State your assumption and continue. Do not call question again."
+
+// NewQuestion builds a question tool. If ask is nil, Run returns
+// QuestionSkipStub so print mode can continue without hanging.
 func NewQuestion(ask AskFunc) *QuestionTool {
 	return &QuestionTool{ask: ask}
 }
@@ -57,7 +61,7 @@ func (t *QuestionTool) Run(ctx context.Context, args json.RawMessage) (string, e
 		q.Options = q.Options[:6]
 	}
 	if t.ask == nil {
-		return "", fmt.Errorf("question: no interactive frontend")
+		return QuestionSkipStub, nil
 	}
 	ans, err := t.ask(ctx, q)
 	if err != nil {

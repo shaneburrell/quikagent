@@ -28,6 +28,9 @@ func TestSystemPromptWithoutAgentsMD(t *testing.T) {
 	if strings.Contains(got, "# Project AGENTS.md") {
 		t.Fatal("unexpected AGENTS.md section when file missing")
 	}
+	if !strings.Contains(got, "do not keep re-checking the same evidence") {
+		t.Fatal("build prompt missing no-ruminate guideline")
+	}
 }
 
 func TestLoadAgentsMDTruncates(t *testing.T) {

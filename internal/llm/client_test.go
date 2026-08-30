@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 // sseServer serves a scripted list of SSE data payloads and records the
@@ -221,6 +222,7 @@ func TestUsageCaptured(t *testing.T) {
 }
 
 func TestRetryOn503(t *testing.T) {
+	fastHTTPRetry(t)
 	attempts := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		attempts++
@@ -247,6 +249,34 @@ func TestRetryOn503(t *testing.T) {
 	if events[len(events)-1].Type != EventDone {
 		t.Fatalf("last = %+v", events[len(events)-1])
 	}
+}
+
+func TestRetryExhausted502(t *testing.T) {
+	fastHTTPRetry(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		fmt.Fprint(w, `{"error":{"message":"bad gateway"}}`)
+	}))
+	defer server.Close()
+
+	c := New(server.URL, "key", "test-model")
+	_, err := c.Chat(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil, 10)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "after 4 attempts") || !strings.Contains(err.Error(), "502") {
+		t.Fatalf("err = %v", err)
+	}
+	if !strings.Contains(err.Error(), "is the LLM up") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func fastHTTPRetry(t *testing.T) {
+	t.Helper()
+	old := chatRetryHTTPBase
+	chatRetryHTTPBase = time.Millisecond
+	t.Cleanup(func() { chatRetryHTTPBase = old })
 }
 
 func TestInvalidToolParametersSurfaced(t *testing.T) {

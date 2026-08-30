@@ -28,13 +28,13 @@ Lab VM manifests: [harvester.md](harvester.md).
 
 ## Start on the host
 
-Workdir is the process current directory (`os.Getwd()`). `cd` to the
-repo you want the agent to edit, then:
+Workdir is `--workdir` when set, otherwise the process current
+directory (`os.Getwd()`). Pass `--workdir` so a systemd unit can
+switch repos without rewriting `WorkingDirectory=`:
 
 ```sh
 export QUIKAGENT_API_KEY=...   # or use ~/.quikagent/config.yaml
-cd /path/to/repo
-quikagent --web 127.0.0.1:8080
+quikagent --workdir /path/to/repo --web 127.0.0.1:8080
 # same machine only: quikagent --desktop
 ```
 
@@ -52,9 +52,9 @@ After=network.target
 [Service]
 Type=simple
 User=ubuntu
-WorkingDirectory=/home/ubuntu/src/your-repo
+WorkingDirectory=/home/ubuntu
 Environment=QUIKAGENT_API_KEY=...
-ExecStart=/usr/local/bin/quikagent --web 127.0.0.1:8080
+ExecStart=/usr/local/bin/quikagent --workdir /home/ubuntu/src/your-repo --web 127.0.0.1:8080
 Restart=on-failure
 
 [Install]

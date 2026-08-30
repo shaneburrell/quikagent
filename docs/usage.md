@@ -13,6 +13,9 @@ A trailing prompt (when not starting with `-`) is the same as `-p`.
 | (none) | Interactive TUI; first run opens setup if no API key |
 | `-p "task"` | Print mode: one turn on stdout, then exit |
 | `-yes` | Auto-approve mutating tools in **print mode only** |
+| `--workdir PATH` | Sandbox root (default: current directory). Applies to TUI, `-p`, and `--web` |
+| `--timeout DUR` | Print-mode deadline (default `20m`; `0` disables). TUI/`--web` stay user-cancellable |
+| `--max-steps N` | Max tool-bearing model rounds per turn (default `50`) |
 | `--continue` | Resume the latest session (creates one if none) |
 | `--session <id>` | Resume by session id |
 | `--plan` | Start in plan (read-only tools) mode |

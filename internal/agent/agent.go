@@ -20,6 +20,12 @@ const maxSteps = 50
 const maxPlanQuestions = 2
 const maxParallelTools = 8
 
+// Idle investigative steps (no write/edit/apply_patch/mutating bash).
+const idleNudgeSteps = 8
+const idleStopSteps = 12
+
+const idleNudgeText = "You have investigated without changing the workspace — edit, or give a final answer and stop."
+
 // compactKeepRecent is how many trailing messages to keep when compacting.
 const compactKeepRecent = 12
 
@@ -125,6 +131,17 @@ func (a *Agent) SetPlanModel(model string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.planModel = model
+}
+
+// SetStepLimit caps tool-bearing model rounds for the next Run. n <= 0
+// leaves the default (50) in place.
+func (a *Agent) SetStepLimit(n int) {
+	if n <= 0 {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.stepLimit = n
 }
 
 // SetAllowTool installs an optional approval callback. Nil auto-allows.
@@ -502,7 +519,13 @@ func (a *Agent) Run(ctx context.Context, userText string, ev chan<- Event) {
 	if limit <= 0 {
 		limit = maxSteps
 	}
+	idle := 0
 	for range limit {
+		if ctx.Err() != nil {
+			turnErr = ctx.Err()
+			ev <- Event{Type: EventError, Err: ctx.Err()}
+			return
+		}
 		mode := a.Mode()
 		defs := a.tools.List()
 		if mode == Plan {
@@ -521,6 +544,11 @@ func (a *Agent) Run(ctx context.Context, userText string, ev chan<- Event) {
 		if err != nil {
 			turnErr = err
 			ev <- Event{Type: EventError, Err: err}
+			return
+		}
+		if ctx.Err() != nil {
+			turnErr = ctx.Err()
+			ev <- Event{Type: EventError, Err: ctx.Err()}
 			return
 		}
 
@@ -565,6 +593,22 @@ func (a *Agent) Run(ctx context.Context, userText string, ev chan<- Event) {
 		if ctx.Err() != nil {
 			turnErr = ctx.Err()
 			ev <- Event{Type: EventError, Err: ctx.Err()}
+			return
+		}
+		if stepMadeProgress(assistant.ToolCalls) {
+			idle = 0
+			continue
+		}
+		idle++
+		if idle == idleNudgeSteps {
+			a.mu.Lock()
+			a.messages = append(a.messages, llm.Message{Role: llm.RoleUser, Content: idleNudgeText})
+			a.mu.Unlock()
+			emitStatus(ev, "no-progress")
+		}
+		if idle >= idleStopSteps {
+			turnErr = fmt.Errorf("no-progress")
+			ev <- Event{Type: EventError, Err: fmt.Errorf("no progress after %d investigative steps", idle)}
 			return
 		}
 	}
@@ -629,6 +673,21 @@ func parallelSafe(reg *tools.Registry, calls []llm.ToolCall) bool {
 
 func emitStatus(ev chan<- Event, name string) {
 	ev <- Event{Type: EventStatus, Name: name, Text: name}
+}
+
+// stepMadeProgress reports whether any call changed the workspace.
+func stepMadeProgress(calls []llm.ToolCall) bool {
+	for _, tc := range calls {
+		switch tc.Name {
+		case "write", "edit", "apply_patch":
+			return true
+		case "bash":
+			if tools.BashLooksMutating(tc.Arguments) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // usePlanModel reports whether this turn should use plan_model and skip the router.

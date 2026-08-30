@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -93,9 +94,60 @@ func TestPrintAllowToolAutoYes(t *testing.T) {
 }
 
 func TestWebRejectsPrintFlag(t *testing.T) {
-	err := run("hello", false, "", false, "8080", false, false, false, "", nil)
+	err := run(cliOpts{print: "hello", webListen: "8080"})
 	if err == nil || !strings.Contains(err.Error(), "--web cannot be combined with -p") {
 		t.Fatalf("got %v", err)
+	}
+}
+
+func TestResolveWorkdirEmptyUsesCwd(t *testing.T) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := resolveWorkdir("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != cwd {
+		t.Fatalf("got %q want %q", got, cwd)
+	}
+}
+
+func TestResolveWorkdirMissing(t *testing.T) {
+	_, err := resolveWorkdir(filepath.Join(t.TempDir(), "no-such-dir"))
+	if err == nil || !strings.Contains(err.Error(), "--workdir") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestResolveWorkdirNotDir(t *testing.T) {
+	f := filepath.Join(t.TempDir(), "file.txt")
+	if err := os.WriteFile(f, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := resolveWorkdir(f)
+	if err == nil || !strings.Contains(err.Error(), "not a directory") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestResolveWorkdirAbs(t *testing.T) {
+	dir := t.TempDir()
+	got, err := resolveWorkdir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !filepath.IsAbs(got) {
+		t.Fatalf("got relative path %q", got)
+	}
+	if got != dir {
+		// macOS /var vs /private/var
+		gotEval, _ := filepath.EvalSymlinks(got)
+		dirEval, _ := filepath.EvalSymlinks(dir)
+		if gotEval != dirEval {
+			t.Fatalf("got %q want %q", got, dir)
+		}
 	}
 }
 

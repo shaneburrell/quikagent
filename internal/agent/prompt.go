@@ -60,6 +60,7 @@ func systemPrompt(opts Options, mode Mode) string {
 		b.WriteString("- Use the tools to do real work; read files before editing them.\n")
 		b.WriteString("- Keep replies concise; this is a terminal, not an essay.\n")
 		b.WriteString("- Use bash for builds, tests, and git; verify changes when a check exists.\n")
+		b.WriteString("- After a short investigate, edit or stop; do not keep re-checking the same evidence.\n")
 		b.WriteString("- Never commit or push unless explicitly asked.\n")
 		b.WriteString("- If a task is ambiguous, state your assumption briefly and proceed.\n")
 	}

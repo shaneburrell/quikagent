@@ -4,15 +4,18 @@ package main
 import (
 	"bufio"
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	"strings"
+	"time"
 
 	"quikagent/internal/agent"
 	"quikagent/internal/config"
@@ -39,6 +42,9 @@ func main() {
 	autoYes := flag.Bool("yes", false, "in print mode, auto-approve write/edit/mutating bash (CI)")
 	desktop := flag.Bool("desktop", false, "open the web UI in the system browser (loopback)")
 	exportID := flag.String("export", "", "print a session as markdown and exit")
+	workdir := flag.String("workdir", "", "sandbox root (default: current directory)")
+	timeout := flag.Duration("timeout", 20*time.Minute, "print-mode deadline (0 disables)")
+	maxSteps := flag.Int("max-steps", 50, "max tool-bearing model rounds per turn")
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), "quikagent — terminal coding agent\n\nusage: quikagent [flags] [prompt...]\n\nflags:\n")
 		flag.PrintDefaults()
@@ -50,7 +56,12 @@ func main() {
 		return
 	}
 
-	if err := run(*printMode, *contin, *sessionID, *planMode, *webListen, *webListenAll, *autoYes, *desktop, *exportID, flag.Args()); err != nil {
+	if err := run(cliOpts{
+		print: *printMode, cont: *contin, sessionID: *sessionID, plan: *planMode,
+		webListen: *webListen, webListenAll: *webListenAll, autoYes: *autoYes,
+		desktop: *desktop, exportID: *exportID, args: flag.Args(),
+		workdir: *workdir, timeout: *timeout, maxSteps: *maxSteps,
+	}); err != nil {
 		fmt.Fprintln(os.Stderr, "quikagent:", err)
 		os.Exit(1)
 	}
@@ -97,34 +108,54 @@ func (s *llmSummarizer) Summarize(ctx context.Context, text string) (string, err
 	return result, nil
 }
 
-func run(print string, cont bool, sessionID string, plan bool, webListen string, webListenAll, autoYes, desktop bool, exportID string, args []string) error {
-	prompt := print
-	if prompt == "" && len(args) > 0 && !strings.HasPrefix(args[0], "-") {
-		prompt = strings.Join(args, " ")
+type cliOpts struct {
+	print        string
+	cont         bool
+	sessionID    string
+	plan         bool
+	webListen    string
+	webListenAll bool
+	autoYes      bool
+	desktop      bool
+	exportID     string
+	args         []string
+	workdir      string
+	timeout      time.Duration
+	maxSteps     int
+}
+
+func run(o cliOpts) error {
+	prompt := o.print
+	if prompt == "" && len(o.args) > 0 && !strings.HasPrefix(o.args[0], "-") {
+		prompt = strings.Join(o.args, " ")
 	}
 
-	workdir, err := os.Getwd()
+	workdir, err := resolveWorkdir(o.workdir)
 	if err != nil {
+		return err
+	}
+	if err := os.Chdir(workdir); err != nil {
 		return err
 	}
 	cfg, err := config.Load(workdir)
 	if err != nil {
 		return err
 	}
-	if webListen != "" && print != "" {
+	if o.webListen != "" && prompt != "" {
 		return fmt.Errorf("--web cannot be combined with -p")
 	}
-	if exportID != "" {
-		if cont {
+	if o.exportID != "" {
+		if o.cont {
 			last, err := session.Latest()
 			if err != nil {
 				return err
 			}
 			return exportSession(last.ID)
 		}
-		return exportSession(exportID)
+		return exportSession(o.exportID)
 	}
-	if desktop && webListen == "" {
+	webListen := o.webListen
+	if o.desktop && webListen == "" {
 		webListen = "127.0.0.1:0"
 	}
 
@@ -182,7 +213,8 @@ func run(print string, cont bool, sessionID string, plan bool, webListen string,
 		})
 	}
 
-	if plan {
+	ag.SetStepLimit(o.maxSteps)
+	if o.plan {
 		ag.SetMode(agent.Plan)
 	}
 	if cfg.Router.Enabled {
@@ -193,15 +225,15 @@ func run(print string, cont bool, sessionID string, plan bool, webListen string,
 	var sess *session.Session
 	resume := false
 	switch {
-	case sessionID != "":
-		loaded, err := session.Load(sessionID)
+	case o.sessionID != "":
+		loaded, err := session.Load(o.sessionID)
 		if err != nil {
 			return err
 		}
 		sess = loaded
 		ag.LoadHistory(sess.Messages())
 		resume = true
-	case cont:
+	case o.cont:
 		last, err := session.Latest()
 		if err == nil {
 			sess = last
@@ -226,7 +258,7 @@ func run(print string, cont bool, sessionID string, plan bool, webListen string,
 	agent.BindSessionPlan(ag, sess)
 
 	if webListen != "" {
-		addr, err := normalizeWebAddr(webListen, webListenAll)
+		addr, err := normalizeWebAddr(webListen, o.webListenAll)
 		if err != nil {
 			return err
 		}
@@ -242,14 +274,14 @@ func run(print string, cont bool, sessionID string, plan bool, webListen string,
 		fmt.Fprintf(os.Stderr, "quikagent web UI on %s (session %s)\n", url, sess.ID)
 		errCh := make(chan error, 1)
 		go func() { errCh <- http.Serve(ln, srv.Handler()) }()
-		if desktop {
+		if o.desktop {
 			openBrowser(url)
 		}
 		return <-errCh
 	}
 
 	if prompt != "" {
-		return runPrint(ag, sess, prompt, autoYes, cfg.Permissions)
+		return runPrint(ag, sess, prompt, o.autoYes, cfg.Permissions, o.timeout)
 	}
 
 	app := tui.NewApp(term, ag, client, sess, cfg)
@@ -350,13 +382,18 @@ func displayWebURL(addr string) string {
 }
 
 // runPrint executes one turn headless, streaming output to stdout.
-func runPrint(ag *agent.Agent, sess *session.Session, prompt string, autoYes bool, perms config.Permissions) error {
+func runPrint(ag *agent.Agent, sess *session.Session, prompt string, autoYes bool, perms config.Permissions, timeout time.Duration) error {
 	agent.BindSessionTrace(ag, sess, "print")
 	ag.SetAllowTool(printAllowTool(autoYes, perms))
 	compacted := false
 	ag.SetOnCompact(func([]llm.Message) { compacted = true })
 	base := len(sess.Messages())
 	ctx := context.Background()
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
 	ev := make(chan agent.Event)
 	go ag.Run(ctx, prompt, ev)
 
@@ -429,7 +466,29 @@ func runPrint(ag *agent.Agent, sess *session.Session, prompt string, autoYes boo
 		}
 		return fmt.Errorf("session save: %w", err)
 	}
+	if turnErr != nil && errors.Is(turnErr, context.DeadlineExceeded) && timeout > 0 {
+		return fmt.Errorf("print timed out after %s", timeout)
+	}
 	return turnErr
+}
+
+func resolveWorkdir(flagVal string) (string, error) {
+	dir := strings.TrimSpace(flagVal)
+	if dir == "" {
+		return os.Getwd()
+	}
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return "", fmt.Errorf("--workdir %s: %w", dir, err)
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return "", fmt.Errorf("--workdir %s: %w", dir, err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("--workdir %s: not a directory", dir)
+	}
+	return abs, nil
 }
 
 func printAllowTool(autoYes bool, perms config.Permissions) agent.AllowFunc {

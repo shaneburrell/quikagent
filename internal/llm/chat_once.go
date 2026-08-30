@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"time"
 )
 
 // ChatOnce performs a non-streaming chat completion and returns the
@@ -31,14 +30,10 @@ func (c *Client) ChatOnce(ctx context.Context, model string, messages []Message,
 	}
 
 	var lastErr error
+	var lastStatus int
 	for attempt := 0; attempt <= chatMaxRetries; attempt++ {
-		if attempt > 0 {
-			delay := chatRetryBase << (attempt - 1)
-			select {
-			case <-ctx.Done():
-				return "", ctx.Err()
-			case <-time.After(delay):
-			}
+		if err := waitRetry(ctx, attempt, lastStatus); err != nil {
+			return "", err
 		}
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(body))
 		if err != nil {
@@ -51,6 +46,7 @@ func (c *Client) ChatOnce(ctx context.Context, model string, messages []Message,
 		res, err := c.http.Do(req)
 		if err != nil {
 			lastErr = err
+			lastStatus = 0
 			if ctx.Err() != nil {
 				return "", ctx.Err()
 			}
@@ -64,6 +60,7 @@ func (c *Client) ChatOnce(ctx context.Context, model string, messages []Message,
 		}
 		if res.StatusCode != http.StatusOK {
 			lastErr = fmt.Errorf("provider (HTTP %s): %s", res.Status, strings.TrimSpace(string(b)))
+			lastStatus = res.StatusCode
 			if !retryableStatus(res.StatusCode) {
 				return "", lastErr
 			}
@@ -90,5 +87,5 @@ func (c *Client) ChatOnce(ctx context.Context, model string, messages []Message,
 		}
 		return wrap.Choices[0].Message.Content, nil
 	}
-	return "", lastErr
+	return "", exhaustedProviderError(lastStatus, chatMaxRetries+1, lastErr)
 }

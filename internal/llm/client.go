@@ -14,9 +14,13 @@ import (
 	"time"
 )
 
-const (
-	chatMaxRetries = 3
-	chatRetryBase  = 200 * time.Millisecond
+const chatMaxRetries = 3
+
+// Backoff bases. HTTP 429/5xx use the longer base (origin-down 502).
+// Tests may shrink these so retries stay fast.
+var (
+	chatRetryBase     = 200 * time.Millisecond
+	chatRetryHTTPBase = 2 * time.Second
 )
 
 // Client talks to an OpenAI-compatible /chat/completions endpoint.
@@ -140,14 +144,10 @@ func (c *Client) ChatAs(ctx context.Context, model string, messages []Message, t
 
 	var res *http.Response
 	var lastErr error
+	var lastStatus int
 	for attempt := 0; attempt <= chatMaxRetries; attempt++ {
-		if attempt > 0 {
-			delay := chatRetryBase << (attempt - 1)
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			case <-time.After(delay):
-			}
+		if err := waitRetry(ctx, attempt, lastStatus); err != nil {
+			return nil, err
 		}
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(body))
 		if err != nil {
@@ -159,6 +159,7 @@ func (c *Client) ChatAs(ctx context.Context, model string, messages []Message, t
 		res, err = c.http.Do(req)
 		if err != nil {
 			lastErr = err
+			lastStatus = 0
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
 			}
@@ -172,15 +173,39 @@ func (c *Client) ChatAs(ctx context.Context, model string, messages []Message, t
 		err = apiError(res)
 		res.Body.Close()
 		lastErr = err
+		lastStatus = res.StatusCode
 		if !retryableStatus(res.StatusCode) {
 			return nil, err
 		}
 	}
-	return nil, lastErr
+	return nil, exhaustedProviderError(lastStatus, chatMaxRetries+1, lastErr)
 }
 
 func retryableStatus(code int) bool {
 	return code == http.StatusTooManyRequests || code >= 500
+}
+
+func waitRetry(ctx context.Context, attempt, lastStatus int) error {
+	if attempt == 0 {
+		return nil
+	}
+	delay := chatRetryBase << (attempt - 1)
+	if lastStatus != 0 && retryableStatus(lastStatus) {
+		delay = chatRetryHTTPBase << (attempt - 1)
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(delay):
+		return nil
+	}
+}
+
+func exhaustedProviderError(status, attempts int, lastErr error) error {
+	if status != 0 && retryableStatus(status) && lastErr != nil {
+		return fmt.Errorf("provider HTTP %d after %d attempts; is the LLM up?: %w", status, attempts, lastErr)
+	}
+	return lastErr
 }
 
 // stream reads the SSE body and translates chunks into Events. It always
