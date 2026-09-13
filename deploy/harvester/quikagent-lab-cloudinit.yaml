@@ -37,7 +37,7 @@ stringData:
         content: |
           #!/bin/bash
           set -euo pipefail
-          GO_VERSION=1.27.0
+          GO_VERSION=1.27.1
           ARCH=$(dpkg --print-architecture)
           case "$ARCH" in
             amd64) GOARCH=amd64 ;;

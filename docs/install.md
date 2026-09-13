@@ -19,7 +19,7 @@ plus `checksums.txt`). Download, verify the checksum, unpack, and put
 
 ## From source
 
-Requires the Go toolchain in [go.mod](../go.mod) (currently Go 1.27).
+Requires the Go toolchain in [go.mod](../go.mod) (currently Go 1.27.1).
 
 The module path is `quikagent`, not `github.com/shaneburrell/quikagent`.
 Do **not** use `go install github.com/shaneburrell/quikagent/...`.
